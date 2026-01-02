@@ -1,0 +1,28 @@
+{
+  module: "MMM-SteamFriends",
+  position: "top_center",
+  config: {
+    steamId: "76561198XXXXXXXXX",
+    steamApiKey: "",
+    updateInterval: 60000,
+    maxFriends: 5,
+    friendAllowlist: [],
+    borderRadius: "16px",
+    scale: 0.7,
+    setup: false,
+    animations: {
+      enabled: true,
+      gamingPulse: true,
+      slideInOnline: true,
+      slideOutOffline: true
+    },
+    magicBorder: {
+      enabled: false,       // Enable/disable the effect
+      duration: 7,          // Animation duration in seconds
+      intensity: 1.0,       // Overall intensity multiplier (0.5 - 2.0)
+      blurBase: 6,          // Blur radius during calm phase (px)
+      blurPeak: 18,         // Blur radius at peak glow (px)
+      scalePeak: 1.18       // Border scale at peak (1.0 - 1.5)
+    }
+  }
+}
