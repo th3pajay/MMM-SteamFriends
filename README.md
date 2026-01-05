@@ -55,7 +55,5 @@ MagicMirror module to display Steam friends list with online and in-game status.
 
 ## Usage & Notes
 * API Key: Fill in your Steam ID and API key in the config section.
-  * https://steamcommunity.com/dev/apikey
-  * https://steamcommunity.com/dev/apikey
 * Customization: Optional: adjust maxFriends, updateInterval, and position.
 * Compatibility: Works on MagicMirror v2+ with MIT license.
