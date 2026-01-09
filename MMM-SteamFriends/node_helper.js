@@ -1,7 +1,14 @@
 const NodeHelper = require("node_helper");
 const axios = require("axios");
 const crypto = require("crypto");
-const QRCode = require("qrcode");
+
+// API and polling configuration constants
+const API = {
+  FRIENDS_PER_REQUEST: 100,
+  REQUEST_TIMEOUT: 10000,  // 10 seconds
+  MAX_CONSECUTIVE_ERRORS: 5,
+  FALLBACK_POLL_INTERVAL: 300000  // 5 minutes
+};
 
 module.exports = NodeHelper.create({
   start() {
@@ -9,7 +16,8 @@ module.exports = NodeHelper.create({
     this.pollInterval = null;
     this.lastFriendsHash = null;
     this.errorCount = 0;
-    this.maxErrors = 5;
+    this.maxErrors = API.MAX_CONSECUTIVE_ERRORS;
+    this.fetchInProgress = false;
   },
 
   stop() {
@@ -20,16 +28,16 @@ module.exports = NodeHelper.create({
     }
   },
 
-  async socketNotificationReceived(n, c) {
-    if (n === "INIT") {
+  async socketNotificationReceived(notification, config) {
+    if (notification === "INIT") {
       if (this.pollInterval) {
         clearInterval(this.pollInterval);
         this.pollInterval = null;
       }
 
-      this.config = c;
+      this.config = config;
 
-      if (c.setup && (!c.steamApiKey || !c.steamId)) {
+      if (config.setup && (!config.steamApiKey || !config.steamId)) {
         return;
       }
 
@@ -37,11 +45,11 @@ module.exports = NodeHelper.create({
 
       this.pollInterval = setInterval(
         () => this.fetchFriends(),
-        c.updateInterval
+        config.updateInterval
       );
     }
 
-    if (n === "SUSPEND") {
+    if (notification === "SUSPEND") {
       if (this.pollInterval) {
         clearInterval(this.pollInterval);
         this.pollInterval = null;
@@ -49,7 +57,7 @@ module.exports = NodeHelper.create({
       }
     }
 
-    if (n === "RESUME") {
+    if (notification === "RESUME") {
       if (!this.pollInterval && this.config) {
         await this.fetchFriends();
         this.pollInterval = setInterval(
@@ -62,6 +70,13 @@ module.exports = NodeHelper.create({
   },
 
   async fetchFriends() {
+    if (this.fetchInProgress) {
+      console.log("[MMM-SteamFriends] Fetch already in progress, skipping");
+      return;
+    }
+
+    this.fetchInProgress = true;
+
     try {
       const key = this.config.steamApiKey || process.env.STEAM_API_KEY;
       if (!key) {
@@ -70,7 +85,7 @@ module.exports = NodeHelper.create({
 
       const friendListUrl = `https://api.steampowered.com/ISteamUser/GetFriendList/v0001/?key=${key}&steamid=${this.config.steamId}&relationship=friend`;
       const friendListRes = await axios.get(friendListUrl, {
-        timeout: 10000,
+        timeout: API.REQUEST_TIMEOUT,
         headers: { 'Accept-Encoding': 'gzip' }
       });
 
@@ -86,13 +101,13 @@ module.exports = NodeHelper.create({
         return;
       }
 
-      const batches = this.chunkArray(friendIds, 100);
+      const batches = this.chunkArray(friendIds, API.FRIENDS_PER_REQUEST);
       const allFriends = [];
 
       for (const batch of batches) {
         const summariesUrl = `https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key=${key}&steamids=${batch.join(',')}`;
         const res = await axios.get(summariesUrl, {
-          timeout: 10000,
+          timeout: API.REQUEST_TIMEOUT,
           headers: { 'Accept-Encoding': 'gzip' }
         });
 
@@ -137,7 +152,7 @@ module.exports = NodeHelper.create({
           clearInterval(this.pollInterval);
           this.pollInterval = setInterval(
             () => this.fetchFriends(),
-            300000
+            API.FALLBACK_POLL_INTERVAL
           );
         }
       }
@@ -146,6 +161,8 @@ module.exports = NodeHelper.create({
         message: error.message,
         count: this.errorCount
       });
+    } finally {
+      this.fetchInProgress = false;
     }
   },
 

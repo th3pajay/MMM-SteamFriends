@@ -1,3 +1,9 @@
+// Animation duration constants (milliseconds)
+const ANIMATION_DURATIONS = {
+  SLIDE_OUT: 400,
+  FADE_OUT: 300
+};
+
 Module.register("MMM-SteamFriends", {
   defaults: {
     setup: false,
@@ -38,14 +44,14 @@ Module.register("MMM-SteamFriends", {
     ];
   },
 
-  socketNotificationReceived(n, p) {
-    if (n === "FRIENDS_UPDATE") {
+  socketNotificationReceived(notification, payload) {
+    if (notification === "FRIENDS_UPDATE") {
       const previousFriends = new Map(this.friends.map(f => [f.id, f]));
-      this.friends = p;
+      this.friends = payload;
       this.updateFriendsList(previousFriends);
     }
-    if (n === "FETCH_ERROR") {
-      console.warn("[MMM-SteamFriends] Error:", p.message);
+    if (notification === "FETCH_ERROR") {
+      console.warn("[MMM-SteamFriends] Error:", payload.message);
     }
   },
 
@@ -103,14 +109,14 @@ Module.register("MMM-SteamFriends", {
               if (row.parentNode) {
                 row.remove();
               }
-            }, 400);
+            }, ANIMATION_DURATIONS.SLIDE_OUT);
           } else {
             row.classList.add('fade-out');
             setTimeout(() => {
               if (row.parentNode) {
                 row.remove();
               }
-            }, 300);
+            }, ANIMATION_DURATIONS.FADE_OUT);
           }
           this.friendsMap.delete(id);
           this.previousStates.delete(id);
@@ -274,10 +280,14 @@ Module.register("MMM-SteamFriends", {
 
     try {
       const urlObj = new URL(url);
-      if (allowedDomains.some(domain => urlObj.hostname.includes(domain))) {
+      if (allowedDomains.some(domain =>
+        urlObj.hostname === domain || urlObj.hostname.endsWith('.' + domain)
+      )) {
         return url;
       }
-    } catch (e) {}
+    } catch (e) {
+      Log.error("[MMM-SteamFriends] Invalid avatar URL:", url, e);
+    }
 
     return '';
   },
@@ -288,7 +298,6 @@ Module.register("MMM-SteamFriends", {
     else if (code.toLowerCase() === "uk") iso = "gb";
     else if (/^[a-z]{2}$/i.test(code)) iso = code.toLowerCase();
 
-    console.log("[MMM-SteamFriends] sanitizeCountryCode:", code, "=>", iso);
     return iso;
   },
 
