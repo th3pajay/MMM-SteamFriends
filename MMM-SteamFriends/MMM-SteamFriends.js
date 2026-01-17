@@ -13,7 +13,10 @@ Module.register("MMM-SteamFriends", {
     friendAllowlist: [],
     borderRadius: "16px",
     maxFriends: 50,
+    sortFriends: "alphabetic",
     scale: 0.7,
+    showGameCapsule: false,
+    gameCapsuleSize: "small",
     animations: {
       enabled: true,
       gamingPulse: true,
@@ -27,6 +30,21 @@ Module.register("MMM-SteamFriends", {
       blurBase: 6,
       blurPeak: 18,
       scalePeak: 1.18
+    },
+    gameScore: {
+      enabled: false,
+      refreshDays: 7,
+      minReviews: 50,
+      showPercentSign: true,
+      colors: {
+        high: "#57cbde",
+        mid: "#a3a3a3",
+        low: "#842c2c"
+      },
+      thresholds: {
+        high: 80,
+        mid: 50
+      }
     }
   },
 
@@ -67,13 +85,15 @@ Module.register("MMM-SteamFriends", {
     const counts = {
       ingame: 0,
       online: 0,
-      total: this.friends.length
+      offline: 0
     };
 
     this.friends.forEach(f => {
       if (f.inGame) {
         counts.ingame++;
-      } else if (f.status === "Online") {
+      } else if (f.status === "Offline") {
+        counts.offline++;
+      } else {
         counts.online++;
       }
     });
@@ -186,9 +206,60 @@ Module.register("MMM-SteamFriends", {
       }
     }
 
-    if (newFriend.game !== oldFriend.game) {
+    const gameChanged = newFriend.game !== oldFriend.game || newFriend.gameId !== oldFriend.gameId;
+    const scoreChanged = newFriend.gameScore !== oldFriend.gameScore;
+
+    if (gameChanged || scoreChanged) {
       const gameCell = row.querySelector('.game');
-      gameCell.textContent = newFriend.game || "";
+      gameCell.innerHTML = "";
+      gameCell.classList.remove("game-capsule-cell");
+
+      // Create wrapper for game content and score badge positioning
+      const gameWrapper = document.createElement("div");
+      gameWrapper.className = "game-wrapper";
+
+      if (this.config.showGameCapsule && newFriend.gameId) {
+        const capsuleUrl = this.getGameCapsuleUrl(newFriend.gameId);
+        if (capsuleUrl) {
+          const img = document.createElement("img");
+          img.src = capsuleUrl;
+          img.alt = newFriend.game || "In Game";
+          img.title = newFriend.game || "In Game";
+          img.className = "game-capsule";
+          if (this.config.gameCapsuleSize === "large") {
+            img.classList.add("game-capsule-large");
+          }
+          img.loading = "lazy";
+          img.onerror = () => {
+            img.remove();
+            const textSpan = document.createElement("span");
+            textSpan.className = "game-text";
+            textSpan.textContent = newFriend.game || "";
+            gameWrapper.insertBefore(textSpan, gameWrapper.firstChild);
+            gameCell.classList.remove("game-capsule-cell");
+          };
+          gameWrapper.appendChild(img);
+          gameCell.classList.add("game-capsule-cell");
+        } else {
+          const textSpan = document.createElement("span");
+          textSpan.className = "game-text";
+          textSpan.textContent = newFriend.game || "";
+          gameWrapper.appendChild(textSpan);
+        }
+      } else {
+        const textSpan = document.createElement("span");
+        textSpan.className = "game-text";
+        textSpan.textContent = newFriend.game || "";
+        gameWrapper.appendChild(textSpan);
+      }
+
+      // Add score badge if enabled and score exists
+      if (this.config.gameScore.enabled && newFriend.gameScore !== undefined) {
+        const scoreBadge = this.createScoreBadge(newFriend.gameScore);
+        gameWrapper.appendChild(scoreBadge);
+      }
+
+      gameCell.appendChild(gameWrapper);
 
       if (newFriend.game && this.config.animations.enabled) {
         gameCell.classList.add('game-change');
@@ -260,7 +331,53 @@ Module.register("MMM-SteamFriends", {
 
     const gameTd = document.createElement("td");
     gameTd.className = "game";
-    gameTd.textContent = friend.game || "";
+
+    // Create wrapper for game content and score badge positioning
+    const gameWrapper = document.createElement("div");
+    gameWrapper.className = "game-wrapper";
+
+    if (this.config.showGameCapsule && friend.gameId) {
+      const capsuleUrl = this.getGameCapsuleUrl(friend.gameId);
+      if (capsuleUrl) {
+        const img = document.createElement("img");
+        img.src = capsuleUrl;
+        img.alt = friend.game || "In Game";
+        img.title = friend.game || "In Game";
+        img.className = "game-capsule";
+        if (this.config.gameCapsuleSize === "large") {
+          img.classList.add("game-capsule-large");
+        }
+        img.loading = "lazy";
+        img.onerror = () => {
+          img.remove();
+          const textSpan = document.createElement("span");
+          textSpan.className = "game-text";
+          textSpan.textContent = friend.game || "";
+          gameWrapper.insertBefore(textSpan, gameWrapper.firstChild);
+          gameTd.classList.remove("game-capsule-cell");
+        };
+        gameWrapper.appendChild(img);
+        gameTd.classList.add("game-capsule-cell");
+      } else {
+        const textSpan = document.createElement("span");
+        textSpan.className = "game-text";
+        textSpan.textContent = friend.game || "";
+        gameWrapper.appendChild(textSpan);
+      }
+    } else {
+      const textSpan = document.createElement("span");
+      textSpan.className = "game-text";
+      textSpan.textContent = friend.game || "";
+      gameWrapper.appendChild(textSpan);
+    }
+
+    // Add score badge if enabled and score exists
+    if (this.config.gameScore.enabled && friend.gameScore !== undefined) {
+      const scoreBadge = this.createScoreBadge(friend.gameScore);
+      gameWrapper.appendChild(scoreBadge);
+    }
+
+    gameTd.appendChild(gameWrapper);
 
     tr.appendChild(statusTd);
     tr.appendChild(avatarTd);
@@ -301,15 +418,57 @@ Module.register("MMM-SteamFriends", {
     return iso;
   },
 
+  getGameCapsuleUrl(gameId) {
+    if (!gameId || !/^\d+$/.test(String(gameId))) {
+      return null;
+    }
+
+    const filename = this.config.gameCapsuleSize === "large"
+      ? "header.jpg"
+      : "capsule_231x87.jpg";
+
+    return `https://cdn.akamai.steamstatic.com/steam/apps/${gameId}/${filename}`;
+  },
+
+  getScoreClass(score) {
+    const thresholds = this.config.gameScore.thresholds;
+    if (score >= thresholds.high) return "score-high";
+    if (score >= thresholds.mid) return "score-mid";
+    return "score-low";
+  },
+
+  createScoreBadge(score) {
+    const badge = document.createElement("span");
+    badge.className = `game-score-badge ${this.getScoreClass(score)}`;
+
+    const text = this.config.gameScore.showPercentSign
+      ? `${score}%`
+      : `${score}`;
+    badge.textContent = text;
+
+    // Apply custom colors if configured
+    const colors = this.config.gameScore.colors;
+    const thresholds = this.config.gameScore.thresholds;
+    if (score >= thresholds.high) {
+      badge.style.color = colors.high;
+    } else if (score >= thresholds.mid) {
+      badge.style.color = colors.mid;
+    } else {
+      badge.style.color = colors.low;
+    }
+
+    return badge;
+  },
+
   updateHeader() {
     const counts = this.getStatusCounts();
-    const onlineCount = document.querySelector('.online-count');
     const ingameCount = document.querySelector('.ingame-count');
-    const totalCount = document.querySelector('.total-count');
+    const onlineCount = document.querySelector('.online-count');
+    const offlineCount = document.querySelector('.offline-count');
 
-    if (onlineCount) onlineCount.textContent = counts.online;
     if (ingameCount) ingameCount.textContent = counts.ingame;
-    if (totalCount) totalCount.textContent = counts.total;
+    if (onlineCount) onlineCount.textContent = counts.online;
+    if (offlineCount) offlineCount.textContent = counts.offline;
   },
 
   getDom() {
@@ -420,13 +579,19 @@ Module.register("MMM-SteamFriends", {
     onlineStat.appendChild(onlineDot);
     onlineStat.appendChild(onlineCount);
 
-    const totalStat = document.createElement("div");
-    totalStat.className = "stat-item";
-    totalStat.innerHTML = `<span class="stat-icon">👥</span><span class="total-count">${counts.total}</span>`;
+    const offlineStat = document.createElement("div");
+    offlineStat.className = "stat-item";
+    const offlineDot = document.createElement("span");
+    offlineDot.className = "stat-dot offline";
+    const offlineCount = document.createElement("span");
+    offlineCount.className = "offline-count";
+    offlineCount.textContent = counts.offline;
+    offlineStat.appendChild(offlineDot);
+    offlineStat.appendChild(offlineCount);
 
     stats.appendChild(ingameStat);
     stats.appendChild(onlineStat);
-    stats.appendChild(totalStat);
+    stats.appendChild(offlineStat);
 
     header.appendChild(titleSection);
     header.appendChild(stats);
