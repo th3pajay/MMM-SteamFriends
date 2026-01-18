@@ -15,7 +15,14 @@ MagicMirror module to display Steam friends list with online and in-game status.
 ## Installation
 
 1. Clone into MagicMirror modules folder:
-```git clone https://github.com/th3pajay/MMM-SteamFriends.git```
+```
+cd ~/MagicMirror/modules
+git clone https://github.com/th3pajay/MMM-SteamFriends.git temp_steam
+mv temp_steam/MMM-SteamFriends .
+rm -rf temp_steam
+cd MMM-SteamFriends
+npm install
+```
 
 2. Get your Steam API Key here: https://steamcommunity.com/dev/apikey
 3. Find your SteamID64 here: https://steamid.io/
@@ -74,7 +81,7 @@ MagicMirror module to display Steam friends list with online and in-game status.
 ## V1.2.0 updates
 * Header, in-game, online, offline count fix
 * Optional game logos instead of text
-* Optional Steam game rating ( (positive review / total reviews)*100 ) 
+* Optional Steam game rating ( (positive reviews / total reviews)*100 ) 
 * Friend list sorting
 
 ## Usage & Notes
