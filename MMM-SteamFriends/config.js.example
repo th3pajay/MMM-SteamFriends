@@ -6,10 +6,13 @@
     steamApiKey: "",
     updateInterval: 60000,
     maxFriends: 5,
+    sortFriends: "alphabetic",  // "alphabetic", "recentActivity", "totalPlaytime" (requires public profiles)
     friendAllowlist: [],
     borderRadius: "16px",
     scale: 0.7,
     setup: false,
+    showGameCapsule: false,
+    gameCapsuleSize: "small",
     animations: {
       enabled: true,
       gamingPulse: true,
@@ -23,6 +26,21 @@
       blurBase: 6,          // Blur radius during calm phase (px)
       blurPeak: 18,         // Blur radius at peak glow (px)
       scalePeak: 1.18       // Border scale at peak (1.0 - 1.5)
+    },
+    gameScore: {
+      enabled: false,       // Enable/disable game score badges (opt-in, requires additional API calls)
+      refreshDays: 7,       // How often to refresh cached scores (days)
+      minReviews: 50,       // Minimum reviews required to show score
+      showPercentSign: true,// Show "85%" vs "85"
+      colors: {
+        high: "#57cbde",    // Color for scores >= 80
+        mid: "#a3a3a3",     // Color for scores 50-79
+        low: "#842c2c"      // Color for scores < 50
+      },
+      thresholds: {
+        high: 80,           // Score >= this is "high"
+        mid: 50             // Score >= this is "mid", below is "low"
+      }
     }
   }
 }

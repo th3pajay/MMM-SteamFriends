@@ -71,6 +71,11 @@
   box-shadow: 0 0 8px #00ff88;
 }
 
+.stat-dot.offline {
+  background: #666677;
+  opacity: 0.6;
+}
+
 .stat-item span {
   color: rgba(255, 255, 255, 0.9);
   font-weight: 600;
@@ -417,9 +422,81 @@
   max-width: 400px;
 }
 
-.row.ingame .game::before {
+.row.ingame .game:not(.game-capsule-cell)::before {
   content: '🎮 ';
   font-size: 1.1rem;
+}
+
+.game-capsule-cell {
+  padding: 4px 12px 4px 0;
+}
+
+.game-capsule {
+  height: 36px;
+  width: auto;
+  max-width: 120px;
+  border-radius: 4px;
+  object-fit: cover;
+  vertical-align: middle;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.row:hover .game-capsule {
+  transform: scale(1.05);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.game-capsule-large {
+  height: 48px;
+  max-width: 180px;
+}
+
+/* Game wrapper for score badge positioning */
+.game-wrapper {
+  position: relative;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+/* Game score badge */
+.game-score-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 28px;
+  padding: 2px 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-align: center;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.75);
+  z-index: 1;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+/* Score tier colors (can be overridden by inline styles from config) */
+.score-high {
+  color: #57cbde;
+}
+
+.score-mid {
+  color: #a3a3a3;
+}
+
+.score-low {
+  color: #842c2c;
+}
+
+/* Text-only mode - inline badge instead of absolute */
+.game:not(.game-capsule-cell) .game-score-badge {
+  position: static;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+/* Game text element for text-only display */
+.game-text {
+  vertical-align: middle;
 }
 
 .steam-setup {
