@@ -5,7 +5,7 @@ MagicMirror module to display Steam friends list with online and in-game status.
 ![MagicMirror](https://img.shields.io/badge/MagicMirror-v2.33.0-blue)
 ![Steam](https://img.shields.io/badge/Steam-Friends-green)
 ![Module](https://img.shields.io/badge/Module-Display-orange)
-![Version](https://img.shields.io/badge/Version-1.2.0-green)
+![Version](https://img.shields.io/badge/Version-1.3.0-green)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey)
 
 <p align="center">
@@ -42,6 +42,7 @@ npm install
     friendAllowlist: [],
     borderRadius: "16px",
     scale: 0.7,
+    avatarSize: "medium",
     setup: false,
     showGameCapsule: false,
     gameCapsuleSize: "small",

@@ -89,11 +89,12 @@
   background: rgba(255, 255, 255, 0.08);
   border-radius: 0 0 16px 16px;
   font-size: 1.1rem;
+  contain: layout style paint;
 }
 
 .steam-table.magic-border {
   position: relative;
-  isolation: isolate;
+  contain: layout style;
 }
 
 .steam-table.magic-border::before {
@@ -105,58 +106,58 @@
     rgba(0, 255, 200, 0.4) 0%,
     rgba(0, 120, 255, 0.6) 50%,
     rgba(200, 100, 255, 0.4) 100%);
-  filter: blur(var(--magic-blur-base, 6px));
+  filter: blur(var(--magic-blur-base, 4px));
   opacity: calc(0.3 * var(--magic-intensity, 1));
   z-index: -1;
   pointer-events: none;
-  animation: secantBorderPulse var(--magic-duration, 7s) infinite cubic-bezier(0.4, 0, 0.8, 1);
+  animation: secantBorderPulse var(--magic-duration, 10s) infinite cubic-bezier(0.4, 0, 0.8, 1);
   will-change: transform, filter, opacity;
 }
 
 @keyframes secantBorderPulse {
   0% {
     transform: scale(1);
-    filter: blur(var(--magic-blur-base, 6px));
+    filter: blur(var(--magic-blur-base, 4px));
     opacity: calc(0.3 * var(--magic-intensity, 1));
   }
   12.5% {
-    transform: scale(1.03);
-    filter: blur(calc(var(--magic-blur-base, 6px) + 1px));
+    transform: scale(1.02);
+    filter: blur(calc(var(--magic-blur-base, 4px) + 1px));
     opacity: calc(0.35 * var(--magic-intensity, 1));
   }
   25% {
-    transform: scale(1.08);
-    filter: blur(calc(var(--magic-blur-base, 6px) + 3px));
+    transform: scale(1.05);
+    filter: blur(calc(var(--magic-blur-base, 4px) + 2px));
     opacity: calc(0.45 * var(--magic-intensity, 1));
   }
   37.5% {
-    transform: scale(calc(1 + (var(--magic-scale-peak, 1.18) - 1) * 0.7));
-    filter: blur(calc(var(--magic-blur-base, 6px) + (var(--magic-blur-peak, 18px) - var(--magic-blur-base, 6px)) * 0.6));
+    transform: scale(calc(1 + (var(--magic-scale-peak, 1.12) - 1) * 0.7));
+    filter: blur(calc(var(--magic-blur-base, 4px) + (var(--magic-blur-peak, 8px) - var(--magic-blur-base, 4px)) * 0.6));
     opacity: calc(0.6 * var(--magic-intensity, 1));
   }
   50% {
-    transform: scale(var(--magic-scale-peak, 1.18));
-    filter: blur(var(--magic-blur-peak, 18px));
-    opacity: calc(0.9 * var(--magic-intensity, 1));
+    transform: scale(var(--magic-scale-peak, 1.12));
+    filter: blur(var(--magic-blur-peak, 8px));
+    opacity: calc(0.8 * var(--magic-intensity, 1));
   }
   62.5% {
-    transform: scale(calc(1 + (var(--magic-scale-peak, 1.18) - 1) * 0.7));
-    filter: blur(calc(var(--magic-blur-base, 6px) + (var(--magic-blur-peak, 18px) - var(--magic-blur-base, 6px)) * 0.6));
+    transform: scale(calc(1 + (var(--magic-scale-peak, 1.12) - 1) * 0.7));
+    filter: blur(calc(var(--magic-blur-base, 4px) + (var(--magic-blur-peak, 8px) - var(--magic-blur-base, 4px)) * 0.6));
     opacity: calc(0.6 * var(--magic-intensity, 1));
   }
   75% {
-    transform: scale(1.08);
-    filter: blur(calc(var(--magic-blur-base, 6px) + 3px));
+    transform: scale(1.05);
+    filter: blur(calc(var(--magic-blur-base, 4px) + 2px));
     opacity: calc(0.45 * var(--magic-intensity, 1));
   }
   87.5% {
-    transform: scale(1.03);
-    filter: blur(calc(var(--magic-blur-base, 6px) + 1px));
+    transform: scale(1.02);
+    filter: blur(calc(var(--magic-blur-base, 4px) + 1px));
     opacity: calc(0.35 * var(--magic-intensity, 1));
   }
   100% {
     transform: scale(1);
-    filter: blur(var(--magic-blur-base, 6px));
+    filter: blur(var(--magic-blur-base, 4px));
     opacity: calc(0.3 * var(--magic-intensity, 1));
   }
 }
@@ -584,7 +585,6 @@
     font-size: 0.85rem;
   }
 
-  .magic-border,
   .row.gaming-pulse {
     animation: none;
   }

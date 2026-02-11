@@ -10,6 +10,7 @@
     friendAllowlist: [],
     borderRadius: "16px",
     scale: 0.7,
+    avatarSize: "medium",    // "small" (32x32), "medium" (64x64), "full" (184x184)
     setup: false,
     showGameCapsule: false,
     gameCapsuleSize: "small",
@@ -20,12 +21,12 @@
       slideOutOffline: true
     },
     magicBorder: {
-      enabled: false,       // Enable/disable the effect
-      duration: 7,          // Animation duration in seconds
+      enabled: false,       // Enable/disable the animated glow effect
+      duration: 10,         // Animation cycle duration in seconds
       intensity: 1.0,       // Overall intensity multiplier (0.5 - 2.0)
-      blurBase: 6,          // Blur radius during calm phase (px)
-      blurPeak: 18,         // Blur radius at peak glow (px)
-      scalePeak: 1.18       // Border scale at peak (1.0 - 1.5)
+      blurBase: 4,          // Blur radius during calm phase (px)
+      blurPeak: 8,          // Blur radius at peak glow (px)
+      scalePeak: 1.12       // Border scale at peak (1.0 - 1.5)
     },
     gameScore: {
       enabled: false,       // Enable/disable game score badges (opt-in, requires additional API calls)

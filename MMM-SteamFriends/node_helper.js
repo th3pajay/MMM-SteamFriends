@@ -3,8 +3,10 @@ const axios = require("axios");
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const http = require("http");
+const https = require("https");
+const QRCode = require("qrcode");
 
-// API and polling configuration constants
 const API = {
   FRIENDS_PER_REQUEST: 100,
   REQUEST_TIMEOUT: 10000,
@@ -13,7 +15,10 @@ const API = {
   SCORE_CONCURRENT_REQUESTS: 5,
   SCORE_REQUEST_TIMEOUT: 8000,
   PLAYTIME_CONCURRENT_REQUESTS: 3,
-  PLAYTIME_REQUEST_TIMEOUT: 8000
+  PLAYTIME_REQUEST_TIMEOUT: 8000,
+  RATE_LIMIT_BACKOFF_MS: 60000,
+  ERROR_BACKOFF_INTERVAL_MS: 300000,
+  MAX_CACHE_SIZE: 1000
 };
 
 // Validates that a gameId is a valid Steam app ID (numeric, 1-10 digits)
@@ -29,7 +34,9 @@ class ScoresCache {
     this.cache = new Map();
     this.dirty = false;
     this.lastPersist = Date.now();
-    this.persistIntervalMs = 5 * 60 * 1000; // 5 minutes
+    this.persistIntervalMs = 5 * 60 * 1000;
+    this.consecutiveFailures = 0;
+    this.MAX_FAILURES = 3;
   }
 
   async load() {
@@ -54,20 +61,28 @@ class ScoresCache {
     const tempPath = this.cachePath + ".tmp";
     try {
       const data = Object.fromEntries(this.cache);
-      await fs.promises.writeFile(tempPath, JSON.stringify(data, null, 2), "utf8");
+      await fs.promises.writeFile(tempPath, JSON.stringify(data), "utf8");
       await fs.promises.rename(tempPath, this.cachePath);
       this.dirty = false;
       this.lastPersist = Date.now();
+      this.consecutiveFailures = 0;
     } catch (error) {
       console.error("[MMM-SteamFriends] Could not save score cache:", error.message);
-      // Clean up temp file if it exists
+      this.consecutiveFailures++;
+
+      if (this.consecutiveFailures >= this.MAX_FAILURES && global.moduleInstance) {
+        global.moduleInstance.sendSocketNotification("CACHE_ERROR", {
+          filename: this.cachePath,
+          error: error.message,
+          failures: this.consecutiveFailures
+        });
+      }
+
       try {
         if (fs.existsSync(tempPath)) {
           await fs.promises.unlink(tempPath);
         }
-      } catch (e) {
-        // Ignore cleanup errors
-      }
+      } catch (e) {}
     }
   }
 
@@ -95,6 +110,11 @@ class ScoresCache {
       cachedAt: Date.now()
     });
     this.dirty = true;
+
+    if (this.cache.size > API.MAX_CACHE_SIZE) {
+      const firstKey = this.cache.keys().next().value;
+      this.cache.delete(firstKey);
+    }
   }
 
   isStale(entry) {
@@ -115,6 +135,8 @@ class PlaytimeCache {
     this.dirty = false;
     this.lastPersist = Date.now();
     this.persistIntervalMs = 5 * 60 * 1000;
+    this.consecutiveFailures = 0;
+    this.MAX_FAILURES = 3;
   }
 
   async load() {
@@ -139,12 +161,23 @@ class PlaytimeCache {
     const tempPath = this.cachePath + ".tmp";
     try {
       const data = Object.fromEntries(this.cache);
-      await fs.promises.writeFile(tempPath, JSON.stringify(data, null, 2), "utf8");
+      await fs.promises.writeFile(tempPath, JSON.stringify(data), "utf8");
       await fs.promises.rename(tempPath, this.cachePath);
       this.dirty = false;
       this.lastPersist = Date.now();
+      this.consecutiveFailures = 0;
     } catch (error) {
       console.error("[MMM-SteamFriends] Could not save playtime cache:", error.message);
+      this.consecutiveFailures++;
+
+      if (this.consecutiveFailures >= this.MAX_FAILURES && global.moduleInstance) {
+        global.moduleInstance.sendSocketNotification("CACHE_ERROR", {
+          filename: this.cachePath,
+          error: error.message,
+          failures: this.consecutiveFailures
+        });
+      }
+
       try {
         if (fs.existsSync(tempPath)) {
           await fs.promises.unlink(tempPath);
@@ -171,6 +204,11 @@ class PlaytimeCache {
       cachedAt: Date.now()
     });
     this.dirty = true;
+
+    if (this.cache.size > API.MAX_CACHE_SIZE) {
+      const firstKey = this.cache.keys().next().value;
+      this.cache.delete(firstKey);
+    }
   }
 
   isStale(entry) {
@@ -181,6 +219,7 @@ class PlaytimeCache {
 
 module.exports = NodeHelper.create({
   start() {
+    global.moduleInstance = this;
     this.config = null;
     this.pollInterval = null;
     this.lastFriendsHash = null;
@@ -190,6 +229,28 @@ module.exports = NodeHelper.create({
     this.scoresCache = null;
     this.scoreRateLimitBackoff = 0;
     this.playtimeCache = null;
+    this.pollState = {
+      baseInterval: 60000,
+      currentInterval: 60000,
+      lastChangeTime: Date.now(),
+      changeCount: 0
+    };
+
+    this.api = axios.create({
+      timeout: API.REQUEST_TIMEOUT,
+      headers: {
+        'Accept-Encoding': 'gzip',
+        'User-Agent': 'MMM-SteamFriends/1.0'
+      },
+      httpAgent: new http.Agent({
+        keepAlive: true,
+        maxSockets: 10
+      }),
+      httpsAgent: new https.Agent({
+        keepAlive: true,
+        maxSockets: 10
+      })
+    });
   },
 
   async stop() {
@@ -200,49 +261,100 @@ module.exports = NodeHelper.create({
     }
     if (this.scoresCache) {
       await this.scoresCache.save();
+      this.scoresCache.cache.clear();
     }
     if (this.playtimeCache) {
       await this.playtimeCache.save();
+      this.playtimeCache.cache.clear();
     }
   },
 
-  async socketNotificationReceived(notification, config) {
+  validateConfig(config) {
+    if (!config.setup) {
+      if (!config.steamId || !/^\d{17}$/.test(config.steamId)) {
+        throw new Error("Invalid steamId format. Must be 17-digit Steam ID.");
+      }
+
+      if (config.updateInterval < 10000) {
+        throw new Error("updateInterval must be >= 10000ms to avoid API abuse");
+      }
+
+      if (config.maxFriends && (config.maxFriends < 1 || config.maxFriends > 250)) {
+        throw new Error("maxFriends must be between 1 and 250");
+      }
+
+      if (config.gameScore?.enabled) {
+        const { high, mid, low } = config.gameScore.thresholds || {};
+        if (high && mid && low && !(high > mid && mid > low)) {
+          throw new Error("gameScore thresholds must be: high > mid > low");
+        }
+      }
+
+      if (config.avatarSize && !['small', 'medium', 'full'].includes(config.avatarSize)) {
+        throw new Error(`Invalid avatarSize "${config.avatarSize}". Must be "small", "medium", or "full".`);
+      }
+    }
+
+    return true;
+  },
+
+  async generateQRCode(url) {
+    try {
+      const dataUrl = await QRCode.toDataURL(url, {
+        width: 200,
+        margin: 1,
+        color: {
+          dark: '#000000',
+          light: '#FFFFFF'
+        }
+      });
+      return dataUrl;
+    } catch (error) {
+      console.error('[MMM-SteamFriends] QR generation failed:', error);
+      return null;
+    }
+  },
+
+  async socketNotificationReceived(notification, payload) {
     if (notification === "INIT") {
       if (this.pollInterval) {
         clearInterval(this.pollInterval);
         this.pollInterval = null;
       }
 
-      this.config = config;
-
-      if (config.setup && (!config.steamApiKey || !config.steamId)) {
+      try {
+        this.validateConfig(payload);
+      } catch (error) {
+        this.sendSocketNotification("CONFIG_ERROR", error.message);
         return;
       }
 
-      if (config.gameScore && config.gameScore.enabled) {
+      this.config = payload;
+
+      if (payload.setup && (!payload.steamApiKey || !payload.steamId)) {
+        return;
+      }
+
+      if (payload.gameScore && payload.gameScore.enabled) {
         const cachePath = path.join(__dirname, ".game-scores-cache.json");
-        const ttlDays = config.gameScore.refreshDays || 7;
+        const ttlDays = payload.gameScore.refreshDays || 7;
         this.scoresCache = new ScoresCache(cachePath, ttlDays);
         await this.scoresCache.load();
       }
 
-      if (config.sortFriends === "totalPlaytime") {
+      if (payload.sortFriends === "totalPlaytime") {
         const cachePath = path.join(__dirname, ".playtime-cache.json");
         this.playtimeCache = new PlaytimeCache(cachePath, 24);
         await this.playtimeCache.load();
       }
 
       await this.fetchFriends();
-
-      this.pollInterval = setInterval(
-        () => this.fetchFriends(),
-        config.updateInterval
-      );
+      this.schedulePoll();
     }
 
     if (notification === "SUSPEND") {
       if (this.pollInterval) {
-        clearInterval(this.pollInterval);
+        clearTimeout(this.pollInterval);
         this.pollInterval = null;
         console.log("[MMM-SteamFriends] Polling suspended");
       }
@@ -251,12 +363,45 @@ module.exports = NodeHelper.create({
     if (notification === "RESUME") {
       if (!this.pollInterval && this.config) {
         await this.fetchFriends();
-        this.pollInterval = setInterval(
-          () => this.fetchFriends(),
-          this.config.updateInterval
-        );
+        this.schedulePoll();
         console.log("[MMM-SteamFriends] Polling resumed");
       }
+    }
+
+    if (notification === "GENERATE_QR") {
+      const dataUrl = await this.generateQRCode(payload.url);
+      this.sendSocketNotification("QR_GENERATED", {
+        id: payload.id,
+        dataUrl
+      });
+    }
+  },
+
+  schedulePoll() {
+    const timeSinceChange = Date.now() - this.pollState.lastChangeTime;
+
+    if (timeSinceChange < 300000) {
+      this.pollState.currentInterval = 30000;
+    } else {
+      this.pollState.currentInterval = 300000;
+    }
+
+    clearTimeout(this.pollInterval);
+    this.pollInterval = setTimeout(() => {
+      this.fetchFriends().then(() => this.schedulePoll());
+    }, this.pollState.currentInterval);
+  },
+
+  getAvatarUrl(player) {
+    const size = this.config.avatarSize || 'medium';
+    switch (size) {
+      case 'small':
+        return player.avatar;           // 32x32
+      case 'full':
+        return player.avatarfull;       // 184x184
+      case 'medium':
+      default:
+        return player.avatarmedium;     // 64x64
     }
   },
 
@@ -275,15 +420,15 @@ module.exports = NodeHelper.create({
       }
 
       const friendListUrl = `https://api.steampowered.com/ISteamUser/GetFriendList/v0001/?key=${key}&steamid=${this.config.steamId}&relationship=friend`;
-      const friendListRes = await axios.get(friendListUrl, {
-        timeout: API.REQUEST_TIMEOUT,
-        headers: { 'Accept-Encoding': 'gzip' }
-      });
+      const friendListRes = await this.api.get(friendListUrl);
 
       let friendIds = friendListRes.data.friendslist.friends.map(f => f.steamid);
 
       if (this.config.friendAllowlist && this.config.friendAllowlist.length > 0) {
-        friendIds = friendIds.filter(id => this.config.friendAllowlist.includes(id));
+        if (!this.allowlistSet) {
+          this.allowlistSet = new Set(this.config.friendAllowlist);
+        }
+        friendIds = friendIds.filter(id => this.allowlistSet.has(id));
       }
 
       if (friendIds.length === 0) {
@@ -293,19 +438,14 @@ module.exports = NodeHelper.create({
       }
 
       const batches = this.chunkArray(friendIds, API.FRIENDS_PER_REQUEST);
-      const allFriends = [];
-
-      for (const batch of batches) {
+      const batchPromises = batches.map(async (batch) => {
         const summariesUrl = `https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key=${key}&steamids=${batch.join(',')}`;
-        const res = await axios.get(summariesUrl, {
-          timeout: API.REQUEST_TIMEOUT,
-          headers: { 'Accept-Encoding': 'gzip' }
-        });
+        const res = await this.api.get(summariesUrl);
 
-        const friends = res.data.response.players.map(p => ({
+        return res.data.response.players.map(p => ({
           id: p.steamid,
           name: p.personaname,
-          avatar: p.avatarfull,
+          avatar: this.getAvatarUrl(p),
           status: this.mapPersonaState(p.personastate),
           inGame: !!p.gameid,
           game: p.gameextrainfo || "",
@@ -313,9 +453,10 @@ module.exports = NodeHelper.create({
           country: (p.loccountrycode || "xx").toLowerCase(),
           lastLogOff: p.lastlogoff
         }));
+      });
 
-        allFriends.push(...friends);
-      }
+      const batchResults = await Promise.all(batchPromises);
+      const allFriends = batchResults.flat();
 
       if (this.config.sortFriends === "totalPlaytime" && this.playtimeCache) {
         await this.enrichWithPlaytime(allFriends, key);
@@ -334,13 +475,14 @@ module.exports = NodeHelper.create({
         return this.sortByConfig(a, b);
       });
 
-      // Enrich with game scores if enabled (non-blocking)
       if (this.config.gameScore && this.config.gameScore.enabled && this.scoresCache) {
         await this.enrichWithScores(allFriends);
       }
 
       const currentHash = this.hashData(allFriends);
       if (currentHash !== this.lastFriendsHash) {
+        this.pollState.changeCount++;
+        this.pollState.lastChangeTime = Date.now();
         this.lastFriendsHash = currentHash;
         this.sendSocketNotification("FRIENDS_UPDATE", allFriends);
       }
@@ -354,17 +496,18 @@ module.exports = NodeHelper.create({
       if (this.errorCount >= this.maxErrors) {
         console.error("[MMM-SteamFriends] Max errors reached, increasing poll interval to 5 minutes");
         if (this.pollInterval) {
-          clearInterval(this.pollInterval);
-          this.pollInterval = setInterval(
+          clearTimeout(this.pollInterval);
+          this.pollInterval = setTimeout(
             () => this.fetchFriends(),
             API.FALLBACK_POLL_INTERVAL
           );
         }
       }
 
-      this.sendSocketNotification("FETCH_ERROR", {
+      this.sendSocketNotification("ERROR", {
+        context: 'fetchFriends',
         message: error.message,
-        count: this.errorCount
+        timestamp: Date.now()
       });
     } finally {
       this.fetchInProgress = false;
@@ -420,45 +563,38 @@ module.exports = NodeHelper.create({
     }
   },
 
-  // Fetch game review score from Steam API
   async fetchGameScore(gameId) {
     if (!isValidGameId(gameId)) {
       return null;
     }
 
-    // Check for rate limit backoff
     if (this.scoreRateLimitBackoff > Date.now()) {
       return null;
     }
 
     try {
       const url = `https://store.steampowered.com/appreviews/${gameId}?json=1&language=all&purchase_type=all&num_per_page=0`;
-      const response = await axios.get(url, {
-        timeout: API.SCORE_REQUEST_TIMEOUT,
-        headers: { 'Accept-Encoding': 'gzip' }
+      const response = await this.api.get(url, {
+        timeout: API.SCORE_REQUEST_TIMEOUT
       });
 
-      // Validate response structure
       if (!response.data || typeof response.data !== 'object') {
         return null;
       }
 
       const { query_summary } = response.data;
 
-      // Handle 404/invalid app - cache as invalid
       if (response.data.success === false || !query_summary) {
         return { invalid: true };
       }
 
       const { total_positive, total_negative, total_reviews } = query_summary;
 
-      // Check minimum reviews threshold
       const minReviews = this.config.gameScore.minReviews || 50;
       if (!total_reviews || total_reviews < minReviews) {
         return null;
       }
 
-      // Calculate percentage (protect against division by zero)
       const total = total_positive + total_negative;
       if (total === 0) {
         return null;
@@ -469,31 +605,30 @@ module.exports = NodeHelper.create({
       return {
         score,
         totalReviews: total_reviews,
+        reviewCount: total_reviews,
         lastUpdated: Date.now()
       };
 
     } catch (error) {
-      // Handle rate limiting (429)
       if (error.response && error.response.status === 429) {
         console.warn("[MMM-SteamFriends] Steam review API rate limited, backing off");
-        this.scoreRateLimitBackoff = Date.now() + 60000; // 1 minute backoff
+        this.scoreRateLimitBackoff = Date.now() + API.RATE_LIMIT_BACKOFF_MS;
         return null;
       }
 
-      // Handle 404 - cache as invalid
       if (error.response && error.response.status === 404) {
         return { invalid: true };
       }
 
-      // Other errors - don't cache, return null
       return null;
     }
   },
 
-  // Enrich friends with game scores using batched concurrent requests
   async enrichWithScores(friends) {
-    // Collect unique gameIds that need fetching
-    const gameIdsToFetch = new Map(); // gameId -> array of friend indices
+    const inGameFriends = friends.filter(f => f.inGame && f.gameId);
+    const uniqueGameIds = [...new Set(inGameFriends.map(f => f.gameId))];
+
+    const gameIdsToFetch = new Map();
 
     friends.forEach((friend, index) => {
       if (!friend.gameId || !isValidGameId(friend.gameId)) {
@@ -502,49 +637,50 @@ module.exports = NodeHelper.create({
 
       const cached = this.scoresCache.get(friend.gameId);
 
-      // Use cached value if available (stale-while-revalidate)
       if (cached) {
         if (!this.scoresCache.isInvalid(cached) && cached.score !== undefined) {
           friend.gameScore = cached.score;
         }
 
-        // If not stale, skip fetching
         if (!this.scoresCache.isStale(cached)) {
           return;
         }
+
+        if (cached.reviewCount > 1000) {
+          const age = Date.now() - cached.cachedAt;
+          if (age < 30 * 24 * 60 * 60 * 1000) {
+            return;
+          }
+        }
       }
 
-      // Queue for background refresh
       if (!gameIdsToFetch.has(friend.gameId)) {
         gameIdsToFetch.set(friend.gameId, []);
       }
       gameIdsToFetch.get(friend.gameId).push(index);
     });
 
-    // Nothing to fetch
     if (gameIdsToFetch.size === 0) {
       await this.scoresCache.maybePersist();
       return;
     }
 
-    // Batch fetch with concurrency limit
     const gameIds = Array.from(gameIdsToFetch.keys());
     const batches = this.chunkArray(gameIds, API.SCORE_CONCURRENT_REQUESTS);
 
     for (const batch of batches) {
-      const results = await Promise.all(
+      const results = await Promise.allSettled(
         batch.map(async (gameId) => {
           const result = await this.fetchGameScore(gameId);
           return { gameId, result };
         })
       );
 
-      // Process results
-      for (const { gameId, result } of results) {
-        if (result !== null) {
+      for (const promise of results) {
+        if (promise.status === 'fulfilled' && promise.value.result) {
+          const { gameId, result } = promise.value;
           this.scoresCache.set(gameId, result);
 
-          // Update friends with this gameId
           if (!result.invalid && result.score !== undefined) {
             const indices = gameIdsToFetch.get(gameId);
             for (const idx of indices) {
@@ -561,9 +697,8 @@ module.exports = NodeHelper.create({
   async fetchPlaytime(steamId, apiKey) {
     try {
       const url = `https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key=${apiKey}&steamid=${steamId}&include_played_free_games=1&format=json`;
-      const response = await axios.get(url, {
-        timeout: API.PLAYTIME_REQUEST_TIMEOUT,
-        headers: { 'Accept-Encoding': 'gzip' }
+      const response = await this.api.get(url, {
+        timeout: API.PLAYTIME_REQUEST_TIMEOUT
       });
 
       if (!response.data || !response.data.response) {
