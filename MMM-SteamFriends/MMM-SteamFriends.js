@@ -36,6 +36,7 @@ Module.register("MMM-SteamFriends", {
       blurPeak: 8,
       scalePeak: 1.12
     },
+    showGamePlaytime: false,
     gameScore: {
       enabled: false,
       refreshDays: 7,
@@ -350,6 +351,10 @@ Module.register("MMM-SteamFriends", {
       gameWrapper.appendChild(scoreBadge);
     }
 
+    if (this.config.showGamePlaytime && friend.gamePlaytime !== undefined) {
+      gameWrapper.appendChild(this.createPlaytimeBadge(friend.gamePlaytime));
+    }
+
     return gameWrapper;
   },
 
@@ -473,6 +478,20 @@ Module.register("MMM-SteamFriends", {
       badge.style.color = colors.low;
     }
 
+    return badge;
+  },
+
+  formatPlaytime(minutes) {
+    const hours = Math.round(minutes / 60);
+    if (hours < 1000) return `${hours}h`;
+    const k = hours / 1000;
+    return `${k < 10 ? k.toFixed(1).replace(/\.0$/, "") : Math.round(k)}kh`;
+  },
+
+  createPlaytimeBadge(minutes) {
+    const badge = document.createElement("span");
+    badge.className = "game-playtime-badge";
+    badge.textContent = this.formatPlaytime(minutes);
     return badge;
   },
 

@@ -342,7 +342,7 @@ module.exports = NodeHelper.create({
         await this.scoresCache.load();
       }
 
-      if (payload.sortFriends === "totalPlaytime") {
+      if (payload.sortFriends === "totalPlaytime" || payload.showGamePlaytime) {
         const cachePath = path.join(__dirname, ".playtime-cache.json");
         this.playtimeCache = new PlaytimeCache(cachePath, 24);
         await this.playtimeCache.load();
@@ -458,7 +458,7 @@ module.exports = NodeHelper.create({
       const batchResults = await Promise.all(batchPromises);
       const allFriends = batchResults.flat();
 
-      if (this.config.sortFriends === "totalPlaytime" && this.playtimeCache) {
+      if ((this.config.sortFriends === "totalPlaytime" || this.config.showGamePlaytime) && this.playtimeCache) {
         await this.enrichWithPlaytime(allFriends, key);
       }
 
@@ -707,7 +707,7 @@ module.exports = NodeHelper.create({
 
       const games = response.data.response.games || [];
       if (games.length === 0) {
-        return { totalPlaytime: 0, private: true };
+        return { totalPlaytime: 0, private: true, games: {} };
       }
 
       const totalMinutes = games.reduce((sum, game) => sum + (game.playtime_forever || 0), 0);
@@ -715,10 +715,11 @@ module.exports = NodeHelper.create({
       return {
         totalPlaytime: totalMinutes,
         gameCount: games.length,
-        private: false
+        private: false,
+        games: Object.fromEntries(games.map(g => [String(g.appid), g.playtime_forever || 0]))
       };
     } catch (error) {
-      return { totalPlaytime: 0, private: true };
+      return { totalPlaytime: 0, private: true, games: {} };
     }
   },
 
@@ -732,6 +733,9 @@ module.exports = NodeHelper.create({
 
       if (cached) {
         friend.totalPlaytime = cached.totalPlaytime || 0;
+        if (friend.inGame && friend.gameId) {
+          friend.gamePlaytime = cached.games?.[String(friend.gameId)];
+        }
         if (!this.playtimeCache.isStale(cached)) {
           return;
         }
@@ -758,6 +762,9 @@ module.exports = NodeHelper.create({
       for (const { index, steamId, result } of results) {
         this.playtimeCache.set(steamId, result);
         friends[index].totalPlaytime = result.totalPlaytime || 0;
+        if (friends[index].inGame && friends[index].gameId) {
+          friends[index].gamePlaytime = result.games?.[String(friends[index].gameId)];
+        }
       }
     }
 
