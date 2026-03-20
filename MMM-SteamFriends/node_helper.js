@@ -451,7 +451,8 @@ module.exports = NodeHelper.create({
           game: p.gameextrainfo || "",
           gameId: p.gameid || null,
           country: (p.loccountrycode || "xx").toLowerCase(),
-          lastLogOff: p.lastlogoff
+          lastLogOff: p.lastlogoff,
+          platform: this.detectPlatform(p.personastateflags || 0, !!p.gameid)
         }));
       });
 
@@ -526,6 +527,15 @@ module.exports = NodeHelper.create({
     return crypto.createHash('md5')
       .update(JSON.stringify(data))
       .digest('hex');
+  },
+
+  detectPlatform(flags, inGame) {
+    if (!inGame) return null;
+    if (flags & 256) return 'web';
+    if (flags & 512) return 'mobile';
+    if (flags & 2048) return null;
+    if (flags & 1024) return (flags & 8192) ? 'deck' : 'pc';
+    return 'pc';
   },
 
   mapPersonaState(state) {

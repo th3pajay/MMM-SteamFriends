@@ -85,6 +85,9 @@ npm install
   }
 }
 ```
+## V1.4.1 updates
+* GameCapsule badges, for gameScore and gamePlayTime, now should be drawn on the corners not placed horizontally
+* In-game friends now have a new icon if they are playing on 'pc', 'web', 'mobile' or 'deck'
 
 ## V1.4.0 updates
 * Playtime badge added (off by default, change in config)

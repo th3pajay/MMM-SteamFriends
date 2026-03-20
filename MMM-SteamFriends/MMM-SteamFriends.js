@@ -258,6 +258,18 @@ Module.register("MMM-SteamFriends", {
         updates.push(() => {
           gameCell.innerHTML = "";
           gameCell.classList.remove("game-capsule-cell");
+          if (this.config.showGameCapsule && newFriend.gameId && this.getGameCapsuleUrl(newFriend.gameId)) {
+            gameCell.classList.add("game-capsule-cell");
+          }
+          if (newFriend.inGame && newFriend.platform) {
+            const src = this.getPlatformIconSrc(newFriend.platform);
+            if (src) {
+              const platformIcon = document.createElement('img');
+              platformIcon.className = 'platform-icon';
+              platformIcon.src = src;
+              gameCell.appendChild(platformIcon);
+            }
+          }
           gameCell.appendChild(this.createGameCell(newFriend));
         });
 
@@ -401,6 +413,16 @@ Module.register("MMM-SteamFriends", {
       gameTd.classList.add("game-capsule-cell");
     }
 
+    if (friend.inGame && friend.platform) {
+      const src = this.getPlatformIconSrc(friend.platform);
+      if (src) {
+        const platformIcon = document.createElement('img');
+        platformIcon.className = 'platform-icon';
+        platformIcon.src = src;
+        gameTd.appendChild(platformIcon);
+      }
+    }
+
     gameTd.appendChild(gameWrapper);
 
     tr.appendChild(statusTd);
@@ -437,6 +459,11 @@ Module.register("MMM-SteamFriends", {
     if (!code) return 'xx';
     if (code.toLowerCase() === 'uk') return 'gb';
     return /^[a-z]{2}$/i.test(code) ? code.toLowerCase() : 'xx';
+  },
+
+  getPlatformIconSrc(platform) {
+    const map = { pc: 'pc.svg', web: 'web.svg', mobile: 'steam.svg', deck: 'deck.svg' };
+    return map[platform] ? this.file(`icons/${map[platform]}`) : null;
   },
 
   getGameCapsuleUrl(gameId) {
