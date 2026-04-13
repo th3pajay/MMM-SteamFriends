@@ -11,7 +11,7 @@
     borderRadius: "16px",
     scale: 0.7,
     avatarSize: "medium",           // "small" (32x32), "medium" (64x64), "full" (184x184)
-    setup: false,                   // Show QR code setup screen
+    setup: false,                   // Set true for first-time setup (web form at /MMM-SteamFriends/setup)
 
     // Game capsule art
     showGameCapsule: false,         // Show game artwork instead of text when in-game
@@ -39,7 +39,11 @@
       enabled: true,
       gamingPulse: true,            // Pulse effect on in-game rows
       slideInOnline: true,          // Slide in when friend comes online
-      slideOutOffline: true         // Slide out when friend goes offline
+      slideOutOffline: true,        // Slide out when friend goes offline
+      slideInDuration: 400,         // Slide-in duration in ms
+      slideOutDuration: 400,        // Slide-out duration in ms
+      fadeInDuration: 300,          // Fade-in duration in ms
+      fadeOutDuration: 300          // Fade-out duration in ms
     },
 
     magicBorder: {

@@ -26,7 +26,11 @@ Module.register("MMM-SteamFriends", {
       enabled: true,
       gamingPulse: true,
       slideInOnline: true,
-      slideOutOffline: true
+      slideOutOffline: true,
+      slideInDuration: 400,
+      slideOutDuration: 400,
+      fadeInDuration: 300,
+      fadeOutDuration: 300
     },
     magicBorder: {
       enabled: false,
@@ -91,6 +95,15 @@ Module.register("MMM-SteamFriends", {
       if (img && payload.dataUrl) {
         img.src = payload.dataUrl;
       }
+    }
+    if (notification === "SETUP_URL") {
+      this.setupUrl = payload;
+      this.updateDom();
+    }
+    if (notification === "SETUP_COMPLETE") {
+      this.config.steamId = payload.steamId;
+      this.config.steamApiKey = payload.steamApiKey;
+      this.updateDom();
     }
   },
 
@@ -163,7 +176,7 @@ Module.register("MMM-SteamFriends", {
               if (row.parentNode) {
                 row.remove();
               }
-            }, ANIMATION_DURATIONS.SLIDE_OUT);
+            }, this.config.animations.slideOutDuration ?? ANIMATION_DURATIONS.SLIDE_OUT);
             this.pendingTimeouts.push(timeoutId);
           } else {
             row.classList.add('fade-out');
@@ -171,7 +184,7 @@ Module.register("MMM-SteamFriends", {
               if (row.parentNode) {
                 row.remove();
               }
-            }, ANIMATION_DURATIONS.FADE_OUT);
+            }, this.config.animations.fadeOutDuration ?? ANIMATION_DURATIONS.FADE_OUT);
             this.pendingTimeouts.push(timeoutId);
           }
           this.friendsMap.delete(id);
@@ -547,70 +560,33 @@ Module.register("MMM-SteamFriends", {
       title.className = "setup-title";
       title.textContent = "Steam Friends Setup";
 
-      const qrContainer = document.createElement("div");
-      qrContainer.className = "setup-qr-container";
+      const qrImg = document.createElement("img");
+      qrImg.className = "setup-qr-image";
+      qrImg.id = "qr-setup";
+      qrImg.alt = "Setup QR Code";
 
-      const apiKeySection = document.createElement("div");
-      apiKeySection.className = "setup-qr-section";
+      if (this.setupUrl) {
+        this.sendSocketNotification("GENERATE_QR", { id: 'setup', url: this.setupUrl });
+      }
 
-      const apiKeyLabel = document.createElement("div");
-      apiKeyLabel.className = "setup-qr-label";
-      apiKeyLabel.textContent = "Steam Web API Key";
-
-      const apiKeyQr = document.createElement("img");
-      apiKeyQr.className = "setup-qr-image";
-      apiKeyQr.id = "qr-webapi";
-      apiKeyQr.alt = "Steam API Key QR Code";
-
-      apiKeySection.appendChild(apiKeyLabel);
-      apiKeySection.appendChild(apiKeyQr);
-
-      const steamIdSection = document.createElement("div");
-      steamIdSection.className = "setup-qr-section";
-
-      const steamIdLabel = document.createElement("div");
-      steamIdLabel.className = "setup-qr-label";
-      steamIdLabel.textContent = "SteamID Lookup";
-
-      const steamIdQr = document.createElement("img");
-      steamIdQr.className = "setup-qr-image";
-      steamIdQr.id = "qr-friends";
-      steamIdQr.alt = "SteamID Lookup QR Code";
-
-      this.sendSocketNotification("GENERATE_QR", {
-        id: 'webapi',
-        url: "https://steamcommunity.com/dev/apikey"
-      });
-
-      this.sendSocketNotification("GENERATE_QR", {
-        id: 'friends',
-        url: "https://steamid.io"
-      });
-
-      steamIdSection.appendChild(steamIdLabel);
-      steamIdSection.appendChild(steamIdQr);
-
-      qrContainer.appendChild(apiKeySection);
-      qrContainer.appendChild(steamIdSection);
+      const urlText = document.createElement("div");
+      urlText.className = "setup-url";
+      urlText.textContent = this.setupUrl || "Loading…";
 
       const instructions = document.createElement("div");
       instructions.className = "setup-instructions";
 
-      const instruction1 = document.createElement("div");
-      instruction1.textContent = "1. Open on phone";
-
-      const instruction2 = document.createElement("div");
-      instruction2.textContent = "2. Copy values into config.js";
-
-      const instruction3 = document.createElement("div");
-      instruction3.textContent = "3. Set setup:false after completion";
-
-      instructions.appendChild(instruction1);
-      instructions.appendChild(instruction2);
-      instructions.appendChild(instruction3);
+      ["1. Scan QR or open URL on your phone",
+       "2. Enter your Steam API key and SteamID",
+       "3. The mirror updates automatically"].forEach(text => {
+        const line = document.createElement("div");
+        line.textContent = text;
+        instructions.appendChild(line);
+      });
 
       setup.appendChild(title);
-      setup.appendChild(qrContainer);
+      setup.appendChild(qrImg);
+      setup.appendChild(urlText);
       setup.appendChild(instructions);
       root.appendChild(setup);
       return root;
@@ -672,6 +648,12 @@ Module.register("MMM-SteamFriends", {
     const table = document.createElement("table");
     table.className = "steam-table";
     table.style.borderRadius = this.config.borderRadius;
+
+    const anim = this.config.animations;
+    table.style.setProperty('--slide-in-duration', `${anim.slideInDuration ?? 400}ms`);
+    table.style.setProperty('--slide-out-duration', `${anim.slideOutDuration ?? 400}ms`);
+    table.style.setProperty('--fade-in-duration', `${anim.fadeInDuration ?? 300}ms`);
+    table.style.setProperty('--fade-out-duration', `${anim.fadeOutDuration ?? 300}ms`);
 
     if (this.config.magicBorder.enabled) {
       table.classList.add('magic-border');

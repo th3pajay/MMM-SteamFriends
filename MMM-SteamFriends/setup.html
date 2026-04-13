@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Steam Friends Setup</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #1b2838;
+      color: #c6d4df;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+
+    .card {
+      background: #2a3f5f;
+      border-radius: 12px;
+      padding: 2rem;
+      width: 100%;
+      max-width: 420px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
+
+    h1 {
+      font-size: 1.4rem;
+      color: #66c0f4;
+      margin-bottom: 0.25rem;
+    }
+
+    .subtitle {
+      font-size: 0.85rem;
+      color: #8fa5bc;
+      margin-bottom: 1.5rem;
+    }
+
+    label {
+      display: block;
+      font-size: 0.85rem;
+      color: #8fa5bc;
+      margin-bottom: 0.3rem;
+    }
+
+    .field {
+      margin-bottom: 1.25rem;
+    }
+
+    input {
+      width: 100%;
+      padding: 0.65rem 0.8rem;
+      background: #1b2838;
+      border: 1px solid #3d6b99;
+      border-radius: 6px;
+      color: #c6d4df;
+      font-size: 0.95rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    input:focus { border-color: #66c0f4; }
+
+    .hint {
+      font-size: 0.75rem;
+      color: #6a8aaa;
+      margin-top: 0.3rem;
+    }
+
+    .hint a { color: #66c0f4; text-decoration: none; }
+
+    button {
+      width: 100%;
+      padding: 0.75rem;
+      background: #4c9aba;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    button:hover { background: #66c0f4; }
+    button:disabled { background: #3d6b99; cursor: not-allowed; }
+
+    .message {
+      margin-top: 1rem;
+      padding: 0.75rem;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      display: none;
+    }
+
+    .message.error   { background: rgba(180,50,50,0.25); color: #e07070; border: 1px solid #c03030; }
+    .message.success { background: rgba(50,180,100,0.2); color: #6ddc90; border: 1px solid #30b060; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Steam Friends Setup</h1>
+    <p class="subtitle">Enter your credentials — the mirror will update automatically.</p>
+
+    <div class="field">
+      <label for="apiKey">Steam Web API Key</label>
+      <input id="apiKey" type="text" placeholder="32-character hex key" autocomplete="off" spellcheck="false">
+      <p class="hint">Get yours at <a href="https://steamcommunity.com/dev/apikey" target="_blank">steamcommunity.com/dev/apikey</a></p>
+    </div>
+
+    <div class="field">
+      <label for="steamId">SteamID64</label>
+      <input id="steamId" type="text" placeholder="76561198XXXXXXXXX" autocomplete="off" spellcheck="false">
+      <p class="hint">Look up at <a href="https://steamid.io" target="_blank">steamid.io</a> — must be 17 digits</p>
+    </div>
+
+    <button id="submit">Save &amp; Connect</button>
+    <div id="message" class="message"></div>
+  </div>
+
+  <script>
+    document.getElementById('submit').addEventListener('click', async () => {
+      const btn = document.getElementById('submit');
+      const msg = document.getElementById('message');
+      const steamApiKey = document.getElementById('apiKey').value.trim();
+      const steamId = document.getElementById('steamId').value.trim();
+
+      msg.style.display = 'none';
+      btn.disabled = true;
+      btn.textContent = 'Checking…';
+
+      try {
+        const res = await fetch('/MMM-SteamFriends/setup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ steamId, steamApiKey })
+        });
+        const data = await res.json();
+
+        if (data.ok) {
+          msg.className = 'message success';
+          msg.textContent = 'Saved! Your mirror is updating now.';
+          msg.style.display = 'block';
+          btn.textContent = 'Done';
+        } else {
+          msg.className = 'message error';
+          msg.textContent = data.error || 'Something went wrong.';
+          msg.style.display = 'block';
+          btn.disabled = false;
+          btn.textContent = 'Save & Connect';
+        }
+      } catch (e) {
+        msg.className = 'message error';
+        msg.textContent = 'Could not reach the mirror. Are you on the same network?';
+        msg.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Save & Connect';
+      }
+    });
+  </script>
+</body>
+</html>
