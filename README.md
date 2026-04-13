@@ -5,7 +5,7 @@ MagicMirror module to display Steam friends list with online and in-game status.
 ![MagicMirror](https://img.shields.io/badge/MagicMirror-v2.33.0-blue)
 ![Steam](https://img.shields.io/badge/Steam-Friends-green)
 ![Module](https://img.shields.io/badge/Module-Display-orange)
-![Version](https://img.shields.io/badge/Version-1.4.2-green)
+![Version](https://img.shields.io/badge/Version-1.4.4-green)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey)
 
 <p align="center">
@@ -24,8 +24,13 @@ cd MMM-SteamFriends
 npm install
 ```
 
-2. Get your Steam API Key here: https://steamcommunity.com/dev/apikey
-3. Find your SteamID64 here: https://steamid.io/
+2. Add the module to `config/config.js` with `setup: true` (see config below).
+3. Start MagicMirror — the mirror will display a QR code.
+4. Scan the QR code (or open the URL on any device on your network).
+5. Enter your Steam API key and SteamID64 in the form — the mirror updates automatically.
+6. Set `setup: false` in your config so normal mode starts on next restart.
+
+> **Manual setup alternative:** Get your API key at https://steamcommunity.com/dev/apikey and your SteamID64 at https://steamid.io/, then paste both directly into config and keep `setup: false`.
 
 4. Add to config/config.js:
 
@@ -43,7 +48,7 @@ npm install
     borderRadius: "16px",
     scale: 0.7,
     avatarSize: "medium",           // "small" (32x32), "medium" (64x64), "full" (184x184)
-    setup: false,                   // Show QR code setup screen
+    setup: false,                   // Set true for first-time setup (web form at /MMM-SteamFriends/setup)
 
     // Game capsule art
     showGameCapsule: false,         // Show game artwork instead of text when in-game
@@ -85,6 +90,11 @@ npm install
   }
 }
 ```
+## V1.4.3 updates
+* Fallback polling, fail to poll should not be final
+* Batch summaries should be more now flexible, not sometimes discard all details
+* API response if empty or unexpected should not cause crashes
+
 ## V1.4.2 updates
 * GameCapsule badges, for gameScore and gamePlayTime, now should be drawn on the corners not placed horizontally
 * In-game friends now have a new icon if they are playing on 'pc', 'web', 'mobile' or 'deck'

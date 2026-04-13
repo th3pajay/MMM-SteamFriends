@@ -4,6 +4,7 @@ dist/
 *.swp
 .DS_Store
 .env
+credentials.json
 nul
 .idea/
 *.iml

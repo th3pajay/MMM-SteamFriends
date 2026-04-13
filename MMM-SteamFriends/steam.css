@@ -175,22 +175,22 @@
 }
 
 .row.fade-in {
-  animation: fadeIn 0.3s ease-out forwards;
+  animation: fadeIn var(--fade-in-duration, 0.3s) ease-out forwards;
   will-change: opacity, transform;
 }
 
 .row.fade-out {
-  animation: fadeOut 0.3s ease-out forwards;
+  animation: fadeOut var(--fade-out-duration, 0.3s) ease-out forwards;
   will-change: opacity, transform;
 }
 
 .row.slide-in {
-  animation: slideIn 0.4s ease-out forwards;
+  animation: slideIn var(--slide-in-duration, 0.4s) ease-out forwards;
   will-change: transform, opacity;
 }
 
 .row.slide-out {
-  animation: slideOut 0.4s ease-in forwards;
+  animation: slideOut var(--slide-out-duration, 0.4s) ease-in forwards;
   will-change: transform, opacity;
 }
 
@@ -541,28 +541,6 @@
   color: rgba(255, 255, 255, 0.9);
 }
 
-.setup-qr-container {
-  display: flex;
-  gap: 40px;
-  justify-content: center;
-  margin: 30px 0;
-  flex-wrap: wrap;
-}
-
-.setup-qr-section {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-}
-
-.setup-qr-label {
-  font-size: 1rem;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.85);
-  margin-bottom: 8px;
-}
-
 .setup-qr-image {
   width: 200px;
   height: 200px;
@@ -570,6 +548,13 @@
   padding: 8px;
   border-radius: 12px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.setup-url {
+  margin: 12px 0 4px;
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.5);
+  word-break: break-all;
 }
 
 .setup-instructions {

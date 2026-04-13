@@ -5,6 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const http = require("http");
 const https = require("https");
+const { networkInterfaces } = require("os");
 const QRCode = require("qrcode");
 
 const API = {
@@ -221,6 +222,8 @@ module.exports = NodeHelper.create({
   start() {
     global.moduleInstance = this;
     this.config = null;
+    this.setupActive = false;
+    this.setupRouteRegistered = false;
     this.pollInterval = null;
     this.lastFriendsHash = null;
     this.errorCount = 0;
@@ -322,17 +325,35 @@ module.exports = NodeHelper.create({
         this.pollInterval = null;
       }
 
+      const saved = this.loadCredentials();
+      const merged = { ...payload, ...saved };
+
       try {
-        this.validateConfig(payload);
+        this.validateConfig(merged);
       } catch (error) {
         this.sendSocketNotification("CONFIG_ERROR", error.message);
         return;
       }
 
-      this.config = payload;
+      this.config = merged;
 
-      if (payload.setup && (!payload.steamApiKey || !payload.steamId)) {
+      if (merged.setup && (!merged.steamApiKey || !merged.steamId)) {
+        this.setupActive = true;
+        if (!this.setupRouteRegistered) {
+          this.registerSetupRoutes();
+          this.setupRouteRegistered = true;
+        }
+        this.sendSocketNotification("SETUP_URL", this.detectSetupUrl());
         return;
+      }
+
+      // Credentials were loaded from credentials.json — tell the frontend
+      // to drop the setup screen (its own config still has setup:true + empty creds)
+      if (merged.setup && merged.steamApiKey && merged.steamId && saved.steamApiKey) {
+        this.sendSocketNotification("SETUP_COMPLETE", {
+          steamId: merged.steamId,
+          steamApiKey: merged.steamApiKey
+        });
       }
 
       if (payload.gameScore && payload.gameScore.enabled) {
@@ -422,7 +443,12 @@ module.exports = NodeHelper.create({
       const friendListUrl = `https://api.steampowered.com/ISteamUser/GetFriendList/v0001/?key=${key}&steamid=${this.config.steamId}&relationship=friend`;
       const friendListRes = await this.api.get(friendListUrl);
 
-      let friendIds = friendListRes.data.friendslist.friends.map(f => f.steamid);
+      const friendsRaw = friendListRes.data?.friendslist?.friends;
+      if (!Array.isArray(friendsRaw)) {
+        this.sendSocketNotification("FRIENDS_UPDATE", []);
+        return;
+      }
+      let friendIds = friendsRaw.map(f => f.steamid);
 
       if (this.config.friendAllowlist && this.config.friendAllowlist.length > 0) {
         if (!this.allowlistSet) {
@@ -442,7 +468,9 @@ module.exports = NodeHelper.create({
         const summariesUrl = `https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key=${key}&steamids=${batch.join(',')}`;
         const res = await this.api.get(summariesUrl);
 
-        return res.data.response.players.map(p => ({
+        const players = res.data?.response?.players;
+        if (!Array.isArray(players)) return [];
+        return players.map(p => ({
           id: p.steamid,
           name: p.personaname,
           avatar: this.getAvatarUrl(p),
@@ -456,8 +484,10 @@ module.exports = NodeHelper.create({
         }));
       });
 
-      const batchResults = await Promise.all(batchPromises);
-      const allFriends = batchResults.flat();
+      const batchResults = await Promise.allSettled(batchPromises);
+      const allFriends = batchResults
+        .filter(r => r.status === 'fulfilled')
+        .flatMap(r => r.value);
 
       if ((this.config.sortFriends === "totalPlaytime" || this.config.showGamePlaytime) && this.playtimeCache) {
         await this.enrichWithPlaytime(allFriends, key);
@@ -499,7 +529,7 @@ module.exports = NodeHelper.create({
         if (this.pollInterval) {
           clearTimeout(this.pollInterval);
           this.pollInterval = setTimeout(
-            () => this.fetchFriends(),
+            () => this.fetchFriends().then(() => this.schedulePoll()),
             API.FALLBACK_POLL_INTERVAL
           );
         }
@@ -527,6 +557,107 @@ module.exports = NodeHelper.create({
     return crypto.createHash('md5')
       .update(JSON.stringify(data))
       .digest('hex');
+  },
+
+  detectSetupUrl() {
+    const nets = networkInterfaces();
+    // Prefer common physical interface names over virtual/bridge/docker interfaces
+    for (const name of ['eth0', 'wlan0', 'en0', 'en1', 'Ethernet', 'Wi-Fi']) {
+      const iface = nets[name];
+      if (iface) {
+        const addr = iface.find(n => n.family === 'IPv4' && !n.internal);
+        if (addr) return `http://${addr.address}:8080/MMM-SteamFriends/setup`;
+      }
+    }
+    const fallback = Object.values(nets).flat()
+      .find(n => n.family === 'IPv4' && !n.internal);
+    const ip = fallback?.address ?? 'localhost';
+    return `http://${ip}:8080/MMM-SteamFriends/setup`;
+  },
+
+  loadCredentials() {
+    const credPath = path.join(this.path, 'credentials.json');
+    try {
+      return JSON.parse(fs.readFileSync(credPath, 'utf8'));
+    } catch (e) {
+      if (e.code !== 'ENOENT') {
+        console.error('[MMM-SteamFriends] Failed to read credentials.json:', e.message);
+      }
+      return {};
+    }
+  },
+
+  saveCredentials(steamId, steamApiKey) {
+    const credPath = path.join(this.path, 'credentials.json');
+    fs.writeFileSync(credPath, JSON.stringify({ steamId, steamApiKey }), 'utf8');
+  },
+
+  registerSetupRoutes() {
+    this.expressApp.get('/MMM-SteamFriends/setup', (req, res) => {
+      if (!this.setupActive) return res.status(404).send('Setup is not active.');
+      res.sendFile(path.join(this.path, 'setup.html'));
+    });
+
+    this.expressApp.post('/MMM-SteamFriends/setup', async (req, res) => {
+      if (!this.setupActive) return res.status(404).send('Setup is not active.');
+
+      let body = {};
+      try {
+        await new Promise((resolve, reject) => {
+          let raw = '';
+          req.on('data', chunk => { raw += chunk; });
+          req.on('end', () => { try { body = JSON.parse(raw); resolve(); } catch (e) { reject(e); } });
+          req.on('error', reject);
+        });
+      } catch (e) {
+        return res.json({ ok: false, error: 'Could not parse request body.' });
+      }
+
+      const { steamId, steamApiKey } = body;
+
+      if (!steamId || !/^\d{17}$/.test(steamId)) {
+        return res.json({ ok: false, error: 'SteamID must be a 17-digit number.' });
+      }
+      if (!steamApiKey || steamApiKey.trim().length < 10) {
+        return res.json({ ok: false, error: 'API key looks too short.' });
+      }
+
+      try {
+        const testUrl = `https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key=${steamApiKey.trim()}&steamids=${steamId}`;
+        const result = await this.api.get(testUrl);
+        const players = result.data?.response?.players;
+        if (!Array.isArray(players) || players.length === 0) {
+          return res.json({ ok: false, error: 'Steam did not return a profile. Check your SteamID.' });
+        }
+      } catch (e) {
+        const status = e.response?.status;
+        const msg = status === 403
+          ? 'API key rejected by Steam. Double-check it.'
+          : `Steam API error: ${e.message}`;
+        return res.json({ ok: false, error: msg });
+      }
+
+      this.setupActive = false;
+      this.saveCredentials(steamId, steamApiKey.trim());
+      this.config.steamId = steamId;
+      this.config.steamApiKey = steamApiKey.trim();
+
+      if (this.config.gameScore?.enabled && !this.scoresCache) {
+        const cachePath = path.join(__dirname, ".game-scores-cache.json");
+        this.scoresCache = new ScoresCache(cachePath, this.config.gameScore.refreshDays || 7);
+        await this.scoresCache.load();
+      }
+      if ((this.config.sortFriends === "totalPlaytime" || this.config.showGamePlaytime) && !this.playtimeCache) {
+        const cachePath = path.join(__dirname, ".playtime-cache.json");
+        this.playtimeCache = new PlaytimeCache(cachePath, 24);
+        await this.playtimeCache.load();
+      }
+
+      this.sendSocketNotification("SETUP_COMPLETE", { steamId, steamApiKey: steamApiKey.trim() });
+      res.json({ ok: true });
+      await this.fetchFriends();
+      this.schedulePoll();
+    });
   },
 
   detectPlatform(flags, inGame) {
