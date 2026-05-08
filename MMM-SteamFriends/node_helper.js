@@ -22,16 +22,25 @@ const API = {
   MAX_CACHE_SIZE: 1000
 };
 
+const PLATFORM_FLAGS = {
+  WEB: 256,
+  MOBILE: 512,
+  BIG_PICTURE: 2048,
+  CLIENT: 1024,
+  STEAM_DECK: 8192
+};
+
 // Validates that a gameId is a valid Steam app ID (numeric, 1-10 digits)
 function isValidGameId(gameId) {
   return gameId && /^\d{1,10}$/.test(String(gameId));
 }
 
-// ScoresCache class for managing game review scores with file persistence
-class ScoresCache {
-  constructor(cachePath, ttlDays = 7) {
+class PersistentCache {
+  constructor(cachePath, ttlMs, label, onError = null) {
     this.cachePath = cachePath;
-    this.ttlMs = ttlDays * 24 * 60 * 60 * 1000;
+    this.ttlMs = ttlMs;
+    this.label = label;
+    this.onError = onError;
     this.cache = new Map();
     this.dirty = false;
     this.lastPersist = Date.now();
@@ -48,10 +57,10 @@ class ScoresCache {
         for (const [key, value] of Object.entries(parsed)) {
           this.cache.set(key, value);
         }
-        console.log(`[MMM-SteamFriends] Loaded ${this.cache.size} cached game scores`);
+        console.log(`[MMM-SteamFriends] Loaded ${this.cache.size} cached ${this.label}`);
       }
     } catch (error) {
-      console.warn("[MMM-SteamFriends] Could not load score cache, starting fresh:", error.message);
+      console.warn(`[MMM-SteamFriends] Could not load ${this.label} cache, starting fresh:`, error.message);
       this.cache = new Map();
     }
   }
@@ -68,11 +77,11 @@ class ScoresCache {
       this.lastPersist = Date.now();
       this.consecutiveFailures = 0;
     } catch (error) {
-      console.error("[MMM-SteamFriends] Could not save score cache:", error.message);
+      console.error(`[MMM-SteamFriends] Could not save ${this.label} cache:`, error.message);
       this.consecutiveFailures++;
 
-      if (this.consecutiveFailures >= this.MAX_FAILURES && global.moduleInstance) {
-        global.moduleInstance.sendSocketNotification("CACHE_ERROR", {
+      if (this.consecutiveFailures >= this.MAX_FAILURES && this.onError) {
+        this.onError("CACHE_ERROR", {
           filename: this.cachePath,
           error: error.message,
           failures: this.consecutiveFailures
@@ -83,7 +92,9 @@ class ScoresCache {
         if (fs.existsSync(tempPath)) {
           await fs.promises.unlink(tempPath);
         }
-      } catch (e) {}
+      } catch (e) {
+        console.warn('[MMM-SteamFriends] Failed to clean up temp file:', e.message);
+      }
     }
   }
 
@@ -93,34 +104,34 @@ class ScoresCache {
     }
   }
 
-  get(gameId) {
-    if (!isValidGameId(gameId)) return null;
-    const key = String(gameId);
-    const entry = this.cache.get(key);
-    if (!entry) return null;
-
-    // Return even if stale (stale-while-revalidate pattern)
-    return entry;
+  isStale(entry) {
+    if (!entry || !entry.cachedAt) return true;
+    return Date.now() - entry.cachedAt > this.ttlMs;
   }
 
-  set(gameId, scoreData) {
-    if (!isValidGameId(gameId)) return;
-    const key = String(gameId);
-    this.cache.set(key, {
-      ...scoreData,
-      cachedAt: Date.now()
-    });
-    this.dirty = true;
-
+  _evictIfNeeded() {
     if (this.cache.size > API.MAX_CACHE_SIZE) {
       const firstKey = this.cache.keys().next().value;
       this.cache.delete(firstKey);
     }
   }
+}
 
-  isStale(entry) {
-    if (!entry || !entry.cachedAt) return true;
-    return Date.now() - entry.cachedAt > this.ttlMs;
+class ScoresCache extends PersistentCache {
+  constructor(cachePath, ttlDays = 7, onError = null) {
+    super(cachePath, ttlDays * 24 * 60 * 60 * 1000, 'game scores', onError);
+  }
+
+  get(gameId) {
+    if (!isValidGameId(gameId)) return null;
+    return this.cache.get(String(gameId)) ?? null;
+  }
+
+  set(gameId, scoreData) {
+    if (!isValidGameId(gameId)) return;
+    this.cache.set(String(gameId), { ...scoreData, cachedAt: Date.now() });
+    this.dirty = true;
+    this._evictIfNeeded();
   }
 
   isInvalid(entry) {
@@ -128,99 +139,24 @@ class ScoresCache {
   }
 }
 
-class PlaytimeCache {
-  constructor(cachePath, ttlHours = 24) {
-    this.cachePath = cachePath;
-    this.ttlMs = ttlHours * 60 * 60 * 1000;
-    this.cache = new Map();
-    this.dirty = false;
-    this.lastPersist = Date.now();
-    this.persistIntervalMs = 5 * 60 * 1000;
-    this.consecutiveFailures = 0;
-    this.MAX_FAILURES = 3;
-  }
-
-  async load() {
-    try {
-      if (fs.existsSync(this.cachePath)) {
-        const data = await fs.promises.readFile(this.cachePath, "utf8");
-        const parsed = JSON.parse(data);
-        for (const [key, value] of Object.entries(parsed)) {
-          this.cache.set(key, value);
-        }
-        console.log(`[MMM-SteamFriends] Loaded ${this.cache.size} cached playtimes`);
-      }
-    } catch (error) {
-      console.warn("[MMM-SteamFriends] Could not load playtime cache:", error.message);
-      this.cache = new Map();
-    }
-  }
-
-  async save() {
-    if (!this.dirty) return;
-
-    const tempPath = this.cachePath + ".tmp";
-    try {
-      const data = Object.fromEntries(this.cache);
-      await fs.promises.writeFile(tempPath, JSON.stringify(data), "utf8");
-      await fs.promises.rename(tempPath, this.cachePath);
-      this.dirty = false;
-      this.lastPersist = Date.now();
-      this.consecutiveFailures = 0;
-    } catch (error) {
-      console.error("[MMM-SteamFriends] Could not save playtime cache:", error.message);
-      this.consecutiveFailures++;
-
-      if (this.consecutiveFailures >= this.MAX_FAILURES && global.moduleInstance) {
-        global.moduleInstance.sendSocketNotification("CACHE_ERROR", {
-          filename: this.cachePath,
-          error: error.message,
-          failures: this.consecutiveFailures
-        });
-      }
-
-      try {
-        if (fs.existsSync(tempPath)) {
-          await fs.promises.unlink(tempPath);
-        }
-      } catch (e) {}
-    }
-  }
-
-  async maybePersist() {
-    if (this.dirty && Date.now() - this.lastPersist >= this.persistIntervalMs) {
-      await this.save();
-    }
+class PlaytimeCache extends PersistentCache {
+  constructor(cachePath, ttlHours = 24, onError = null) {
+    super(cachePath, ttlHours * 60 * 60 * 1000, 'playtimes', onError);
   }
 
   get(steamId) {
-    const entry = this.cache.get(steamId);
-    if (!entry) return null;
-    return entry;
+    return this.cache.get(steamId) ?? null;
   }
 
   set(steamId, playtimeData) {
-    this.cache.set(steamId, {
-      ...playtimeData,
-      cachedAt: Date.now()
-    });
+    this.cache.set(steamId, { ...playtimeData, cachedAt: Date.now() });
     this.dirty = true;
-
-    if (this.cache.size > API.MAX_CACHE_SIZE) {
-      const firstKey = this.cache.keys().next().value;
-      this.cache.delete(firstKey);
-    }
-  }
-
-  isStale(entry) {
-    if (!entry || !entry.cachedAt) return true;
-    return Date.now() - entry.cachedAt > this.ttlMs;
+    this._evictIfNeeded();
   }
 }
 
 module.exports = NodeHelper.create({
   start() {
-    global.moduleInstance = this;
     this.config = null;
     this.setupActive = false;
     this.setupRouteRegistered = false;
@@ -278,6 +214,10 @@ module.exports = NodeHelper.create({
         throw new Error("Invalid steamId format. Must be 17-digit Steam ID.");
       }
 
+      if (config.steamApiKey && !/^[0-9A-Fa-f]{32}$/.test(config.steamApiKey.trim())) {
+        throw new Error("Invalid steamApiKey format. Must be a 32-character hex string.");
+      }
+
       if (config.updateInterval < 10000) {
         throw new Error("updateInterval must be >= 10000ms to avoid API abuse");
       }
@@ -325,7 +265,7 @@ module.exports = NodeHelper.create({
         this.pollInterval = null;
       }
 
-      const saved = this.loadCredentials();
+      const saved = await this.loadCredentials();
       const merged = { ...payload, ...saved };
 
       try {
@@ -356,16 +296,18 @@ module.exports = NodeHelper.create({
         });
       }
 
+      const notify = (evt, data) => this.sendSocketNotification(evt, data);
+
       if (payload.gameScore && payload.gameScore.enabled) {
         const cachePath = path.join(__dirname, ".game-scores-cache.json");
         const ttlDays = payload.gameScore.refreshDays || 7;
-        this.scoresCache = new ScoresCache(cachePath, ttlDays);
+        this.scoresCache = new ScoresCache(cachePath, ttlDays, notify);
         await this.scoresCache.load();
       }
 
       if (payload.sortFriends === "totalPlaytime" || payload.showGamePlaytime) {
         const cachePath = path.join(__dirname, ".playtime-cache.json");
-        this.playtimeCache = new PlaytimeCache(cachePath, 24);
+        this.playtimeCache = new PlaytimeCache(cachePath, 24, notify);
         await this.playtimeCache.load();
       }
 
@@ -399,13 +341,12 @@ module.exports = NodeHelper.create({
   },
 
   schedulePoll() {
+    const base = this.config.updateInterval || 60000;
     const timeSinceChange = Date.now() - this.pollState.lastChangeTime;
-
-    if (timeSinceChange < 300000) {
-      this.pollState.currentInterval = 30000;
-    } else {
-      this.pollState.currentInterval = 300000;
-    }
+    const activeThreshold = base * 5;
+    this.pollState.currentInterval = timeSinceChange < activeThreshold
+      ? Math.max(10000, Math.floor(base * 0.5))
+      : Math.min(300000, base * 5);
 
     clearTimeout(this.pollInterval);
     this.pollInterval = setTimeout(() => {
@@ -575,10 +516,11 @@ module.exports = NodeHelper.create({
     return `http://${ip}:8080/MMM-SteamFriends/setup`;
   },
 
-  loadCredentials() {
+  async loadCredentials() {
     const credPath = path.join(this.path, 'credentials.json');
     try {
-      return JSON.parse(fs.readFileSync(credPath, 'utf8'));
+      const raw = await fs.promises.readFile(credPath, 'utf8');
+      return JSON.parse(raw);
     } catch (e) {
       if (e.code !== 'ENOENT') {
         console.error('[MMM-SteamFriends] Failed to read credentials.json:', e.message);
@@ -587,9 +529,9 @@ module.exports = NodeHelper.create({
     }
   },
 
-  saveCredentials(steamId, steamApiKey) {
+  async saveCredentials(steamId, steamApiKey) {
     const credPath = path.join(this.path, 'credentials.json');
-    fs.writeFileSync(credPath, JSON.stringify({ steamId, steamApiKey }), 'utf8');
+    await fs.promises.writeFile(credPath, JSON.stringify({ steamId, steamApiKey }), 'utf8');
   },
 
   registerSetupRoutes() {
@@ -638,18 +580,19 @@ module.exports = NodeHelper.create({
       }
 
       this.setupActive = false;
-      this.saveCredentials(steamId, steamApiKey.trim());
+      await this.saveCredentials(steamId, steamApiKey.trim());
       this.config.steamId = steamId;
       this.config.steamApiKey = steamApiKey.trim();
 
+      const notify = (evt, data) => this.sendSocketNotification(evt, data);
       if (this.config.gameScore?.enabled && !this.scoresCache) {
         const cachePath = path.join(__dirname, ".game-scores-cache.json");
-        this.scoresCache = new ScoresCache(cachePath, this.config.gameScore.refreshDays || 7);
+        this.scoresCache = new ScoresCache(cachePath, this.config.gameScore.refreshDays || 7, notify);
         await this.scoresCache.load();
       }
       if ((this.config.sortFriends === "totalPlaytime" || this.config.showGamePlaytime) && !this.playtimeCache) {
         const cachePath = path.join(__dirname, ".playtime-cache.json");
-        this.playtimeCache = new PlaytimeCache(cachePath, 24);
+        this.playtimeCache = new PlaytimeCache(cachePath, 24, notify);
         await this.playtimeCache.load();
       }
 
@@ -662,10 +605,10 @@ module.exports = NodeHelper.create({
 
   detectPlatform(flags, inGame) {
     if (!inGame) return null;
-    if (flags & 256) return 'web';
-    if (flags & 512) return 'mobile';
-    if (flags & 2048) return null;
-    if (flags & 1024) return (flags & 8192) ? 'deck' : 'pc';
+    if (flags & PLATFORM_FLAGS.WEB) return 'web';
+    if (flags & PLATFORM_FLAGS.MOBILE) return 'mobile';
+    if (flags & PLATFORM_FLAGS.BIG_PICTURE) return null;
+    if (flags & PLATFORM_FLAGS.CLIENT) return (flags & PLATFORM_FLAGS.STEAM_DECK) ? 'deck' : 'pc';
     return 'pc';
   },
 
@@ -686,17 +629,19 @@ module.exports = NodeHelper.create({
     const sortMethod = this.config.sortFriends || "alphabetic";
 
     switch (sortMethod) {
-      case "recentActivity":
+      case "recentActivity": {
         const aTime = a.lastLogOff || 0;
         const bTime = b.lastLogOff || 0;
         if (aTime !== bTime) return bTime - aTime;
         return a.name.localeCompare(b.name);
+      }
 
-      case "totalPlaytime":
+      case "totalPlaytime": {
         const aPlaytime = a.totalPlaytime || 0;
         const bPlaytime = b.totalPlaytime || 0;
         if (aPlaytime !== bPlaytime) return bPlaytime - aPlaytime;
         return a.name.localeCompare(b.name);
+      }
 
       case "alphabetic":
       default:
@@ -860,6 +805,10 @@ module.exports = NodeHelper.create({
         games: Object.fromEntries(games.map(g => [String(g.appid), g.playtime_forever || 0]))
       };
     } catch (error) {
+      const status = error.response?.status;
+      if (status !== 401 && status !== 403) {
+        console.warn(`[MMM-SteamFriends] fetchPlaytime error for ${steamId}:`, error.message);
+      }
       return { totalPlaytime: 0, private: true, games: {} };
     }
   },
@@ -893,14 +842,16 @@ module.exports = NodeHelper.create({
     const batches = this.chunkArray(friendsToFetch, API.PLAYTIME_CONCURRENT_REQUESTS);
 
     for (const batch of batches) {
-      const results = await Promise.all(
+      const results = await Promise.allSettled(
         batch.map(async ({ index, steamId }) => {
           const result = await this.fetchPlaytime(steamId, apiKey);
           return { index, steamId, result };
         })
       );
 
-      for (const { index, steamId, result } of results) {
+      for (const settled of results) {
+        if (settled.status !== 'fulfilled') continue;
+        const { index, steamId, result } = settled.value;
         this.playtimeCache.set(steamId, result);
         friends[index].totalPlaytime = result.totalPlaytime || 0;
         if (friends[index].inGame && friends[index].gameId) {

@@ -274,15 +274,7 @@ Module.register("MMM-SteamFriends", {
           if (this.config.showGameCapsule && newFriend.gameId && this.getGameCapsuleUrl(newFriend.gameId)) {
             gameCell.classList.add("game-capsule-cell");
           }
-          if (newFriend.inGame && newFriend.platform) {
-            const src = this.getPlatformIconSrc(newFriend.platform);
-            if (src) {
-              const platformIcon = document.createElement('img');
-              platformIcon.className = 'platform-icon';
-              platformIcon.src = src;
-              gameCell.appendChild(platformIcon);
-            }
-          }
+          this.appendPlatformIcon(gameCell, newFriend);
           gameCell.appendChild(this.createGameCell(newFriend));
         });
 
@@ -326,15 +318,22 @@ Module.register("MMM-SteamFriends", {
     return 'offline';
   },
 
+  appendPlatformIcon(container, friend) {
+    if (!friend.inGame || !friend.platform) return;
+    const src = this.getPlatformIconSrc(friend.platform);
+    if (src) {
+      const icon = document.createElement('img');
+      icon.className = 'platform-icon';
+      icon.src = src;
+      container.appendChild(icon);
+    }
+  },
+
   createGameCell(friend) {
     const gameWrapper = document.createElement("div");
     gameWrapper.className = "game-wrapper";
 
     if (!friend.game) {
-      const textSpan = document.createElement("span");
-      textSpan.className = "game-text";
-      textSpan.textContent = "";
-      gameWrapper.appendChild(textSpan);
       return gameWrapper;
     }
 
@@ -426,16 +425,7 @@ Module.register("MMM-SteamFriends", {
       gameTd.classList.add("game-capsule-cell");
     }
 
-    if (friend.inGame && friend.platform) {
-      const src = this.getPlatformIconSrc(friend.platform);
-      if (src) {
-        const platformIcon = document.createElement('img');
-        platformIcon.className = 'platform-icon';
-        platformIcon.src = src;
-        gameTd.appendChild(platformIcon);
-      }
-    }
-
+    this.appendPlatformIcon(gameTd, friend);
     gameTd.appendChild(gameWrapper);
 
     tr.appendChild(statusTd);

@@ -106,7 +106,10 @@
 
     <div class="field">
       <label for="apiKey">Steam Web API Key</label>
-      <input id="apiKey" type="text" placeholder="32-character hex key" autocomplete="off" spellcheck="false">
+      <div style="display:flex;gap:8px;align-items:center;">
+        <input id="apiKey" type="password" placeholder="32-character hex key" autocomplete="off" spellcheck="false" style="flex:1;margin-bottom:0;">
+        <button type="button" id="toggleApiKey" onclick="const i=document.getElementById('apiKey');i.type=i.type==='password'?'text':'password';this.textContent=i.type==='password'?'Show':'Hide';" style="width:auto;padding:0.65rem 0.8rem;font-size:0.8rem;flex-shrink:0;">Show</button>
+      </div>
       <p class="hint">Get yours at <a href="https://steamcommunity.com/dev/apikey" target="_blank">steamcommunity.com/dev/apikey</a></p>
     </div>
 

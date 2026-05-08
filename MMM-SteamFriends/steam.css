@@ -312,6 +312,9 @@
   border-radius: 50%;
   display: inline-block;
   box-shadow: 0 0 8px currentColor;
+}
+
+.status-indicator:not(.offline) {
   animation: statusGlow 2s ease-in-out infinite;
 }
 
@@ -478,19 +481,6 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
 }
 
-/* Score tier colors (can be overridden by inline styles from config) */
-.score-high {
-  color: #57cbde;
-}
-
-.score-mid {
-  color: #a3a3a3;
-}
-
-.score-low {
-  color: #842c2c;
-}
-
 /* Text-only mode - inline badge instead of absolute */
 .game:not(.game-capsule-cell) .game-score-badge {
   position: static;
@@ -566,19 +556,6 @@
 
 .setup-instructions div {
   margin: 8px 0;
-}
-
-.steam-empty {
-  padding: 40px 20px;
-  text-align: center;
-  color: rgba(255, 255, 255, 0.5);
-  font-size: 1.1rem;
-}
-
-.steam-empty-icon {
-  font-size: 3rem;
-  margin-bottom: 16px;
-  opacity: 0.3;
 }
 
 @media (max-width: 768px) {
