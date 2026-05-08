@@ -5,7 +5,7 @@ MagicMirror module to display Steam friends list with online and in-game status.
 ![MagicMirror](https://img.shields.io/badge/MagicMirror-v2.33.0-blue)
 ![Steam](https://img.shields.io/badge/Steam-Friends-green)
 ![Module](https://img.shields.io/badge/Module-Display-orange)
-![Version](https://img.shields.io/badge/Version-1.4.4-green)
+![Version](https://img.shields.io/badge/Version-1.4.5-green)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey)
 
 <p align="center">
@@ -90,6 +90,36 @@ npm install
   }
 }
 ```
+## V1.4.5 refactor
+-Core (node_helper.js):
+* Use config.updateInterval with adaptive scaling (10s–300s)
+* Extract PersistentCache base class, dedupe Scores/PlaytimeCache
+* Promise.allSettled in enrichWithPlaytime, skip rejected entries
+* Log warning on non-401/403 fetchPlaytime errors
+* Named PLATFORM_FLAGS constants replace magic bitflags
+* LoadCredentials/saveCredentials converted to async/fs.promises
+* Remove global.moduleInstance; add onError callback to all caches
+* Add {} block scoping to case clauses in sortByConfig()
+* ValidateConfig() checks API key format /^[0-9A-Fa-f]{32}$/
+
+-Frontend (MMM-SteamFriends.js):
+* Extract appendPlatformIcon() helper, dedupe friend row blocks
+* Skip empty <span class="game-text"> when !friend.game
+
+-Styles (steam.css):
+* Delete dead .score-high/.score-mid/.score-low color rules
+* Move statusGlow animation to :not(.offline) only
+* Delete unused .steam-empty and .steam-empty-icon blocks
+
+-Setup (setup.html):
+* API key input type="password" with Show/Hide toggle
+
+-Deps (package.json + lockfile):
+* npm audit fix → 0 axios CVEs
+
+-Docs:
+* Corrected "LRU" to "FIFO" cache eviction
+
 ## V1.4.3 updates
 * Fallback polling, fail to poll should not be final
 * Batch summaries should be more now flexible, not sometimes discard all details
