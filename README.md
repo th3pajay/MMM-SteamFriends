@@ -5,7 +5,7 @@ MagicMirror module to display Steam friends list with online and in-game status.
 ![MagicMirror](https://img.shields.io/badge/MagicMirror-v2.33.0-blue)
 ![Steam](https://img.shields.io/badge/Steam-Friends-green)
 ![Module](https://img.shields.io/badge/Module-Display-orange)
-![Version](https://img.shields.io/badge/Version-1.4.5-green)
+![Version](https://img.shields.io/badge/Version-1.4.74-green)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey)
 
 <p align="center">
@@ -90,6 +90,10 @@ npm install
   }
 }
 ```
+## V1.4.74 updates
+* Component positioning, no overlaps
+* Slightly new header looks, glinting Steam icon
+
 ## V1.4.5 refactor
 -Core (node_helper.js):
 * Use config.updateInterval with adaptive scaling (10s–300s)
