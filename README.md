@@ -8,6 +8,10 @@ MagicMirror module to display Steam friends list with online and in-game status.
 ![Version](https://img.shields.io/badge/Version-1.4.76-green)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey)
 
+<p align="center">
+<img src="Media/MMM-SteamFriends.png?raw=true" alt="In-use" width="256"/>
+</p>
+
 ## Installation
 
 ```bash
