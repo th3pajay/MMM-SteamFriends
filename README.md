@@ -5,34 +5,19 @@ MagicMirror module to display Steam friends list with online and in-game status.
 ![MagicMirror](https://img.shields.io/badge/MagicMirror-v2.33.0-blue)
 ![Steam](https://img.shields.io/badge/Steam-Friends-green)
 ![Module](https://img.shields.io/badge/Module-Display-orange)
-![Version](https://img.shields.io/badge/Version-1.4.74-green)
+![Version](https://img.shields.io/badge/Version-1.4.76-green)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey)
-
-<p align="center">
-<img src="Media/MMM-SteamFriends.png?raw=true" alt="In-use" width="256"/>
-</p>
 
 ## Installation
 
-1. Clone into MagicMirror modules folder:
-```
+```bash
 cd ~/MagicMirror/modules
-git clone https://github.com/th3pajay/MMM-SteamFriends.git temp_steam
-mv temp_steam/MMM-SteamFriends .
-rm -rf temp_steam
+git clone https://github.com/th3pajay/MMM-SteamFriends.git
 cd MMM-SteamFriends
 npm install
 ```
 
-2. Add the module to `config/config.js` with `setup: true` (see config below).
-3. Start MagicMirror — the mirror will display a QR code.
-4. Scan the QR code (or open the URL on any device on your network).
-5. Enter your Steam API key and SteamID64 in the form — the mirror updates automatically.
-6. Set `setup: false` in your config so normal mode starts on next restart.
-
-> **Manual setup alternative:** Get your API key at https://steamcommunity.com/dev/apikey and your SteamID64 at https://steamid.io/, then paste both directly into config and keep `setup: false`.
-
-4. Add to config/config.js:
+Add to `config/config.js`:
 
 ```json
 {
@@ -90,53 +75,10 @@ npm install
   }
 }
 ```
-## V1.4.74 updates
-* Component positioning, no overlaps
-* Slightly new header looks, glinting Steam icon
-
-## V1.4.5 refactor
--Core (node_helper.js):
-* Use config.updateInterval with adaptive scaling (10s–300s)
-* Extract PersistentCache base class, dedupe Scores/PlaytimeCache
-* Promise.allSettled in enrichWithPlaytime, skip rejected entries
-* Log warning on non-401/403 fetchPlaytime errors
-* Named PLATFORM_FLAGS constants replace magic bitflags
-* LoadCredentials/saveCredentials converted to async/fs.promises
-* Remove global.moduleInstance; add onError callback to all caches
-* Add {} block scoping to case clauses in sortByConfig()
-* ValidateConfig() checks API key format /^[0-9A-Fa-f]{32}$/
-
--Frontend (MMM-SteamFriends.js):
-* Extract appendPlatformIcon() helper, dedupe friend row blocks
-* Skip empty <span class="game-text"> when !friend.game
-
--Styles (steam.css):
-* Delete dead .score-high/.score-mid/.score-low color rules
-* Move statusGlow animation to :not(.offline) only
-* Delete unused .steam-empty and .steam-empty-icon blocks
-
--Setup (setup.html):
-* API key input type="password" with Show/Hide toggle
-
--Deps (package.json + lockfile):
-* npm audit fix → 0 axios CVEs
-
--Docs:
-* Corrected "LRU" to "FIFO" cache eviction
-
-## V1.4.3 updates
-* Fallback polling, fail to poll should not be final
-* Batch summaries should be more now flexible, not sometimes discard all details
-* API response if empty or unexpected should not cause crashes
-
-## V1.4.2 updates
-* GameCapsule badges, for gameScore and gamePlayTime, now should be drawn on the corners not placed horizontally
-* In-game friends now have a new icon if they are playing on 'pc', 'web', 'mobile' or 'deck'
-
-## V1.4.0 updates
-* Playtime badge added (off by default, change in config)
-
-## Usage & Notes
-* API Key: Fill in your Steam ID and API key in the config section.
-* Customization: Optional: adjust maxFriends, updateInterval, and position.
-* Compatibility: Works on MagicMirror v2+ with MIT license.
+## Changelog
+- **1.4.76** Flattened project structure
+- **1.4.75** Component positioning, glinting Steam icon
+- **1.4.5**  Core/frontend/CSS refactor, async credentials, PersistentCache
+- **1.4.3**  Fallback polling, batch resilience
+- **1.4.2**  Platform icons, badge corner placement
+- **1.4.0**  Playtime badge

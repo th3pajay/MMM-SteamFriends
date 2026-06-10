@@ -1,11 +1,9 @@
-// Animation duration constants (milliseconds)
 const ANIMATION_DURATIONS = {
   SLIDE_OUT: 400,
   FADE_OUT: 300,
   SLIDE_IN: 400,
   STATUS_CHANGE: 500,
-  GAME_CHANGE: 500,
-  GAMING_PULSE_DELAY: 500
+  GAME_CHANGE: 500
 };
 
 Module.register("MMM-SteamFriends", {
@@ -499,16 +497,9 @@ Module.register("MMM-SteamFriends", {
       : `${score}`;
     badge.textContent = text;
 
-    // Apply custom colors if configured
-    const colors = this.config.gameScore.colors;
-    const thresholds = this.config.gameScore.thresholds;
-    if (score >= thresholds.high) {
-      badge.style.color = colors.high;
-    } else if (score >= thresholds.mid) {
-      badge.style.color = colors.mid;
-    } else {
-      badge.style.color = colors.low;
-    }
+    const { colors, thresholds } = this.config.gameScore;
+    badge.style.color = score >= thresholds.high ? colors.high
+      : score >= thresholds.mid ? colors.mid : colors.low;
 
     return badge;
   },
