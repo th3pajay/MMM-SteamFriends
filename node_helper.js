@@ -30,7 +30,6 @@ const PLATFORM_FLAGS = {
   STEAM_DECK: 8192
 };
 
-// Validates that a gameId is a valid Steam app ID (numeric, 1-10 digits)
 function isValidGameId(gameId) {
   return gameId && /^\d{1,10}$/.test(String(gameId));
 }
@@ -238,7 +237,6 @@ module.exports = NodeHelper.create({
       }
     }
 
-    return true;
   },
 
   async generateQRCode(url) {
@@ -711,9 +709,6 @@ module.exports = NodeHelper.create({
   },
 
   async enrichWithScores(friends) {
-    const inGameFriends = friends.filter(f => f.inGame && f.gameId);
-    const uniqueGameIds = [...new Set(inGameFriends.map(f => f.gameId))];
-
     const gameIdsToFetch = new Map();
 
     friends.forEach((friend, index) => {
