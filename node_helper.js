@@ -7,6 +7,7 @@ const http = require("http");
 const https = require("https");
 const { networkInterfaces } = require("os");
 const QRCode = require("qrcode");
+const LOCAL_VERSION = require('./package.json').version;
 
 const API = {
   FRIENDS_PER_REQUEST: 100,
@@ -17,6 +18,8 @@ const API = {
   SCORE_REQUEST_TIMEOUT: 8000,
   PLAYTIME_CONCURRENT_REQUESTS: 3,
   PLAYTIME_REQUEST_TIMEOUT: 8000,
+  ACHIEVEMENT_CONCURRENT_REQUESTS: 3,
+  ACHIEVEMENT_REQUEST_TIMEOUT: 8000,
   RATE_LIMIT_BACKOFF_MS: 60000,
   ERROR_BACKOFF_INTERVAL_MS: 300000,
   MAX_CACHE_SIZE: 1000
@@ -123,7 +126,7 @@ class ScoresCache extends PersistentCache {
 
   get(gameId) {
     if (!isValidGameId(gameId)) return null;
-    return this.cache.get(String(gameId)) ?? null;
+    return this.cache.get(String(gameId));
   }
 
   set(gameId, scoreData) {
@@ -144,11 +147,23 @@ class PlaytimeCache extends PersistentCache {
   }
 
   get(steamId) {
-    return this.cache.get(steamId) ?? null;
+    return this.cache.get(steamId);
   }
 
   set(steamId, playtimeData) {
     this.cache.set(steamId, { ...playtimeData, cachedAt: Date.now() });
+    this.dirty = true;
+    this._evictIfNeeded();
+  }
+}
+
+class AchievementCache extends PersistentCache {
+  constructor(cachePath, ttlMinutes = 10, onError = null) {
+    super(cachePath, ttlMinutes * 60 * 1000, 'achievements', onError);
+  }
+  get(steamId, gameId) { return this.cache.get(`${steamId}:${gameId}`); }
+  set(steamId, gameId, data) {
+    this.cache.set(`${steamId}:${gameId}`, { ...data, cachedAt: Date.now() });
     this.dirty = true;
     this._evictIfNeeded();
   }
@@ -167,6 +182,7 @@ module.exports = NodeHelper.create({
     this.scoresCache = null;
     this.scoreRateLimitBackoff = 0;
     this.playtimeCache = null;
+    this.achievementCache = null;
     this.pollState = {
       baseInterval: 60000,
       currentInterval: 60000,
@@ -204,6 +220,10 @@ module.exports = NodeHelper.create({
     if (this.playtimeCache) {
       await this.playtimeCache.save();
       this.playtimeCache.cache.clear();
+    }
+    if (this.achievementCache) {
+      await this.achievementCache.save();
+      this.achievementCache.cache.clear();
     }
   },
 
@@ -309,8 +329,15 @@ module.exports = NodeHelper.create({
         await this.playtimeCache.load();
       }
 
+      if (payload.achievementProgress?.enabled && payload.showGameCapsule) {
+        const cachePath = path.join(__dirname, ".achievement-cache.json");
+        this.achievementCache = new AchievementCache(cachePath, payload.achievementProgress.refreshMinutes || 10, notify);
+        await this.achievementCache.load();
+      }
+
       await this.fetchFriends();
       this.schedulePoll();
+      this.checkForUpdate();
     }
 
     if (notification === "SUSPEND") {
@@ -438,8 +465,8 @@ module.exports = NodeHelper.create({
         if (aInGame !== bInGame) return bInGame - aInGame;
 
         const statusOrder = { "Online": 0, "Busy": 1, "Away": 2, "Snooze": 3, "Looking to trade": 4, "Looking to play": 5, "Offline": 6 };
-        const aOrder = statusOrder[a.status] !== undefined ? statusOrder[a.status] : 99;
-        const bOrder = statusOrder[b.status] !== undefined ? statusOrder[b.status] : 99;
+        const aOrder = statusOrder[a.status] ?? 99;
+        const bOrder = statusOrder[b.status] ?? 99;
         if (aOrder !== bOrder) return aOrder - bOrder;
 
         return this.sortByConfig(a, b);
@@ -447,6 +474,10 @@ module.exports = NodeHelper.create({
 
       if (this.config.gameScore && this.config.gameScore.enabled && this.scoresCache) {
         await this.enrichWithScores(allFriends);
+      }
+
+      if (this.config.achievementProgress?.enabled && this.config.showGameCapsule && this.achievementCache) {
+        await this.enrichWithAchievements(allFriends, key);
       }
 
       const currentHash = this.hashData(allFriends);
@@ -723,16 +754,8 @@ module.exports = NodeHelper.create({
           friend.gameScore = cached.score;
         }
 
-        if (!this.scoresCache.isStale(cached)) {
-          return;
-        }
-
-        if (cached.reviewCount > 1000) {
-          const age = Date.now() - cached.cachedAt;
-          if (age < 30 * 24 * 60 * 60 * 1000) {
-            return;
-          }
-        }
+        if (!this.scoresCache.isStale(cached)) return;
+        if (cached.reviewCount > 1000 && Date.now() - cached.cachedAt < 30 * 24 * 60 * 60 * 1000) return;
       }
 
       if (!gameIdsToFetch.has(friend.gameId)) {
@@ -758,16 +781,11 @@ module.exports = NodeHelper.create({
       );
 
       for (const promise of results) {
-        if (promise.status === 'fulfilled' && promise.value.result) {
-          const { gameId, result } = promise.value;
-          this.scoresCache.set(gameId, result);
-
-          if (!result.invalid && result.score !== undefined) {
-            const indices = gameIdsToFetch.get(gameId);
-            for (const idx of indices) {
-              friends[idx].gameScore = result.score;
-            }
-          }
+        if (promise.status !== 'fulfilled' || !promise.value.result) continue;
+        const { gameId, result } = promise.value;
+        this.scoresCache.set(gameId, result);
+        if (!result.invalid && result.score !== undefined) {
+          gameIdsToFetch.get(gameId).forEach(idx => { friends[idx].gameScore = result.score; });
         }
       }
     }
@@ -856,5 +874,88 @@ module.exports = NodeHelper.create({
     }
 
     await this.playtimeCache.maybePersist();
+  },
+
+  async fetchAchievementProgress(steamId, gameId, apiKey) {
+    try {
+      const res = await this.api.get(
+        'https://api.steampowered.com/ISteamUserStats/GetPlayerAchievements/v1/',
+        { params: { key: apiKey, steamid: steamId, appid: gameId }, timeout: API.ACHIEVEMENT_REQUEST_TIMEOUT }
+      );
+      const achievements = res.data?.playerstats?.achievements;
+      if (!achievements?.length) return null;
+      const unlocked = achievements.filter(a => a.achieved === 1).length;
+      return { pct: Math.round((unlocked / achievements.length) * 100) };
+    } catch (e) {
+      const s = e.response?.status;
+      if (s !== 401 && s !== 403) console.warn(`[MMM-SteamFriends] achievement fetch ${steamId}/${gameId}:`, e.message);
+      return null;
+    }
+  },
+
+  async enrichWithAchievements(friends, apiKey) {
+    if (!this.achievementCache) return;
+
+    const toFetch = [];
+
+    friends.forEach((friend, index) => {
+      if (!friend.inGame || !isValidGameId(friend.gameId)) return;
+
+      const cached = this.achievementCache.get(friend.id, friend.gameId);
+      if (cached) {
+        if (cached.pct !== null) friend.achievementPct = cached.pct;
+        if (!this.achievementCache.isStale(cached)) return;
+      }
+
+      toFetch.push({ index, steamId: friend.id, gameId: friend.gameId });
+    });
+
+    if (toFetch.length === 0) {
+      await this.achievementCache.maybePersist();
+      return;
+    }
+
+    const batches = this.chunkArray(toFetch, API.ACHIEVEMENT_CONCURRENT_REQUESTS);
+
+    for (const batch of batches) {
+      const results = await Promise.allSettled(
+        batch.map(async ({ index, steamId, gameId }) => {
+          const result = await this.fetchAchievementProgress(steamId, gameId, apiKey);
+          return { index, steamId, gameId, result };
+        })
+      );
+
+      for (const settled of results) {
+        if (settled.status !== 'fulfilled') continue;
+        const { index, steamId, gameId, result } = settled.value;
+        this.achievementCache.set(steamId, gameId, result ?? { pct: null });
+        if (result) friends[index].achievementPct = result.pct;
+      }
+    }
+
+    await this.achievementCache.maybePersist();
+  },
+
+  async checkForUpdate() {
+    try {
+      const res = await this.api.get(
+        'https://raw.githubusercontent.com/th3pajay/MMM-SteamFriends/main/package.json',
+        { timeout: 5000 }
+      );
+      const remote = res.data?.version;
+      if (remote && this.isNewerVersion(remote, LOCAL_VERSION)) {
+        this.sendSocketNotification('UPDATE_AVAILABLE', remote);
+      }
+    } catch { /* silent — github unreachable */ }
+  },
+
+  isNewerVersion(remote, local) {
+    const r = remote.split('.').map(Number);
+    const l = local.split('.').map(Number);
+    for (let i = 0; i < 3; i++) {
+      if ((r[i] || 0) > (l[i] || 0)) return true;
+      if ((r[i] || 0) < (l[i] || 0)) return false;
+    }
+    return false;
   }
 });

@@ -64,6 +64,7 @@ Module.register("MMM-SteamFriends", {
     this.lastFriendsHash = null;
     this.pendingTimeouts = [];
     this.steamIconEl = null;
+    this.updateAvailable = false;
     this.scheduleGlintCycle();
     this.sendSocketNotification("INIT", this.config);
   },
@@ -76,42 +77,46 @@ Module.register("MMM-SteamFriends", {
   },
 
   socketNotificationReceived(notification, payload) {
-    if (notification === "FRIENDS_UPDATE") {
-      const previousFriends = new Map(this.friends.map(f => [f.id, f]));
-      this.friends = payload;
-      this.updateFriendsList(previousFriends);
-    }
-    if (notification === "ERROR") {
-      console.warn("[MMM-SteamFriends] Error:", payload.message);
-    }
-    if (notification === "CACHE_ERROR") {
-      console.warn(`[MMM-SteamFriends] Cache persistence failing: ${payload.filename}`);
-    }
-    if (notification === "CONFIG_ERROR") {
-      console.error(`[MMM-SteamFriends] Configuration error: ${payload}`);
-    }
-    if (notification === "QR_GENERATED") {
-      const img = document.getElementById(`qr-${payload.id}`);
-      if (img && payload.dataUrl) {
-        img.src = payload.dataUrl;
+    switch (notification) {
+      case "FRIENDS_UPDATE": {
+        const previousFriends = new Map(this.friends.map(f => [f.id, f]));
+        this.friends = payload;
+        this.updateFriendsList(previousFriends);
+        break;
       }
-    }
-    if (notification === "SETUP_URL") {
-      this.setupUrl = payload;
-      this.updateDom();
-    }
-    if (notification === "SETUP_COMPLETE") {
-      this.config.steamId = payload.steamId;
-      this.config.steamApiKey = payload.steamApiKey;
-      this.updateDom();
+      case "ERROR":
+        console.warn("[MMM-SteamFriends] Error:", payload.message);
+        break;
+      case "CACHE_ERROR":
+        console.warn(`[MMM-SteamFriends] Cache persistence failing: ${payload.filename}`);
+        break;
+      case "CONFIG_ERROR":
+        console.error(`[MMM-SteamFriends] Configuration error: ${payload}`);
+        break;
+      case "QR_GENERATED": {
+        const img = document.getElementById(`qr-${payload.id}`);
+        if (img && payload.dataUrl) img.src = payload.dataUrl;
+        break;
+      }
+      case "SETUP_URL":
+        this.setupUrl = payload;
+        this.updateDom();
+        break;
+      case "SETUP_COMPLETE":
+        this.config.steamId = payload.steamId;
+        this.config.steamApiKey = payload.steamApiKey;
+        this.updateDom();
+        break;
+      case "UPDATE_AVAILABLE":
+        this.updateAvailable = true;
+        this.updateDom();
+        break;
     }
   },
 
   suspend() {
-    if (this.pendingTimeouts) {
-      this.pendingTimeouts.forEach(id => clearTimeout(id));
-      this.pendingTimeouts = [];
-    }
+    this.pendingTimeouts.forEach(id => clearTimeout(id));
+    this.pendingTimeouts = [];
     this.sendSocketNotification("SUSPEND");
   },
 
@@ -356,7 +361,30 @@ Module.register("MMM-SteamFriends", {
           textSpan.textContent = friend.game || "";
           gameWrapper.insertBefore(textSpan, gameWrapper.firstChild);
         };
-        gameWrapper.appendChild(img);
+        if (this.config.achievementProgress?.enabled && friend.achievementPct !== undefined) {
+          const frame = document.createElement('div');
+          frame.className = 'capsule-frame';
+          frame.appendChild(img);
+          const greyImg = document.createElement('img');
+          greyImg.src = capsuleUrl;
+          greyImg.className = 'capsule-grey-layer';
+          greyImg.setAttribute('aria-hidden', 'true');
+          greyImg.style.clipPath = `inset(0 0 0 ${friend.achievementPct}%)`;
+          frame.appendChild(greyImg);
+          const divider = document.createElement('div');
+          divider.className = 'achievement-divider';
+          divider.style.left = `${friend.achievementPct}%`;
+          frame.appendChild(divider);
+          if (friend.achievementPct === 100) {
+            const trophy = document.createElement('span');
+            trophy.className = 'capsule-trophy';
+            trophy.textContent = '🏆';
+            frame.appendChild(trophy);
+          }
+          gameWrapper.appendChild(frame);
+        } else {
+          gameWrapper.appendChild(img);
+        }
       } else {
         const textSpan = document.createElement("span");
         textSpan.className = "game-text";
@@ -591,6 +619,16 @@ Module.register("MMM-SteamFriends", {
 
     titleSection.appendChild(icon);
     titleSection.appendChild(title);
+
+    if (this.updateAvailable) {
+      const arrow = document.createElement('a');
+      arrow.className = 'header-update-arrow';
+      arrow.href = 'https://github.com/th3pajay/MMM-SteamFriends';
+      arrow.target = '_blank';
+      arrow.title = 'Update available';
+      arrow.textContent = '⬆';
+      titleSection.appendChild(arrow);
+    }
 
     const stats = document.createElement("div");
     stats.className = "steam-stats";
