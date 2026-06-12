@@ -5,7 +5,7 @@ MagicMirror module to display Steam friends list with online and in-game status.
 ![MagicMirror](https://img.shields.io/badge/MagicMirror-v2.33.0-blue)
 ![Steam](https://img.shields.io/badge/Steam-Friends-green)
 ![Module](https://img.shields.io/badge/Module-Display-orange)
-![Version](https://img.shields.io/badge/Version-1.4.77-green)
+![Version](https://img.shields.io/badge/Version-1.4.84-green)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey)
 
 <p align="center">
@@ -44,6 +44,14 @@ Add to `config/config.js`:
     gameCapsuleSize: "small",       // "small" (231x87) or "large" (header.jpg)
     showGamePlaytime: false,        // Show hours played in current game (bottom-right of capsule, requires public profiles)
 
+    // Achievement progress — desaturates capsule art proportionally (requires showGameCapsule: true)
+    // Left portion stays full color (unlocked), right portion turns dark grey (locked)
+    // Trophy icon shown when 100% complete. Requires public Steam profile.
+    achievementProgress: {
+      enabled: false,
+      refreshMinutes: 10,           // How often to re-check achievement progress
+    },
+
     // Game score badge (top-right of capsule)
     gameScore: {
       enabled: false,               // Enable/disable game score badges (opt-in, requires additional API calls)
@@ -53,7 +61,7 @@ Add to `config/config.js`:
       colors: {
         high: "#57cbde",            // Color for scores >= 80
         mid: "#a3a3a3",             // Color for scores 50-79
-        low: "#842c2c"              // Color for scores < 50
+        low: "#e05555"              // Color for scores < 50
       },
       thresholds: {
         high: 80,                   // Score >= this is "high"
@@ -80,6 +88,7 @@ Add to `config/config.js`:
 }
 ```
 ## Changelog
+- **1.4.84** Achievement progress capsule split (color/grey proportional), trophy icon at 100%, 3D capsule depth, badge readability improvements, update notification arrow
 - **1.4.76** Flattened project structure
 - **1.4.75** Component positioning, glinting Steam icon
 - **1.4.5**  Core/frontend/CSS refactor, async credentials, PersistentCache

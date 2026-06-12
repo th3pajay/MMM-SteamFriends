@@ -1,7 +1,7 @@
 {
   "name": "mmm-steamfriends",
-  "version": "1.4.77",
-  "description": "MagicMirror module to show Steam online friends",
+  "version": "1.4.84",
+  "description": "MagicMirror module to display Steam friends, statuses, details",
   "main": "MMM-SteamFriends.js",
   "author": "th3pajay",
   "license": "MIT",
