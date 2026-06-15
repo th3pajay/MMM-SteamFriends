@@ -1,6 +1,6 @@
 {
   "name": "mmm-steamfriends",
-  "version": "1.4.84",
+  "version": "1.4.88",
   "description": "MagicMirror module to display Steam friends, statuses, details",
   "main": "MMM-SteamFriends.js",
   "author": "th3pajay",

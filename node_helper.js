@@ -20,6 +20,8 @@ const API = {
   PLAYTIME_REQUEST_TIMEOUT: 8000,
   ACHIEVEMENT_CONCURRENT_REQUESTS: 3,
   ACHIEVEMENT_REQUEST_TIMEOUT: 8000,
+  TOP_GAMES_CONCURRENT_REQUESTS: 3,
+  TOP_GAMES_REQUEST_TIMEOUT: 8000,
   RATE_LIMIT_BACKOFF_MS: 60000,
   ERROR_BACKOFF_INTERVAL_MS: 300000,
   MAX_CACHE_SIZE: 1000
@@ -169,6 +171,18 @@ class AchievementCache extends PersistentCache {
   }
 }
 
+class TopGamesCache extends PersistentCache {
+  constructor(cachePath, onError = null) {
+    super(cachePath, 12 * 60 * 60 * 1000, 'top games', onError);
+  }
+  get(steamId) { return this.cache.get(steamId); }
+  set(steamId, data) {
+    this.cache.set(steamId, { ...data, cachedAt: Date.now() });
+    this.dirty = true;
+    this._evictIfNeeded();
+  }
+}
+
 module.exports = NodeHelper.create({
   start() {
     this.config = null;
@@ -183,6 +197,7 @@ module.exports = NodeHelper.create({
     this.scoreRateLimitBackoff = 0;
     this.playtimeCache = null;
     this.achievementCache = null;
+    this.topGamesCache = null;
     this.pollState = {
       baseInterval: 60000,
       currentInterval: 60000,
@@ -224,6 +239,10 @@ module.exports = NodeHelper.create({
     if (this.achievementCache) {
       await this.achievementCache.save();
       this.achievementCache.cache.clear();
+    }
+    if (this.topGamesCache) {
+      await this.topGamesCache.save();
+      this.topGamesCache.cache.clear();
     }
   },
 
@@ -293,6 +312,10 @@ module.exports = NodeHelper.create({
         return;
       }
 
+      if (merged.topGames === true) {
+        merged.topGames = { enabled: true, rotateInterval: 4000, transitionSpeed: 400 };
+      }
+
       this.config = merged;
 
       if (merged.setup && (!merged.steamApiKey || !merged.steamId)) {
@@ -333,6 +356,12 @@ module.exports = NodeHelper.create({
         const cachePath = path.join(__dirname, ".achievement-cache.json");
         this.achievementCache = new AchievementCache(cachePath, payload.achievementProgress.refreshMinutes || 10, notify);
         await this.achievementCache.load();
+      }
+
+      if (merged.topGames?.enabled && payload.showGameCapsule) {
+        const cachePath = path.join(__dirname, ".top-games-cache.json");
+        this.topGamesCache = new TopGamesCache(cachePath, notify);
+        await this.topGamesCache.load();
       }
 
       await this.fetchFriends();
@@ -480,6 +509,10 @@ module.exports = NodeHelper.create({
         await this.enrichWithAchievements(allFriends, key);
       }
 
+      if (this.config.topGames?.enabled && this.config.showGameCapsule && this.topGamesCache) {
+        await this.enrichWithTopGames(allFriends, key);
+      }
+
       const currentHash = this.hashData(allFriends);
       if (currentHash !== this.lastFriendsHash) {
         this.pollState.changeCount++;
@@ -623,6 +656,12 @@ module.exports = NodeHelper.create({
         const cachePath = path.join(__dirname, ".playtime-cache.json");
         this.playtimeCache = new PlaytimeCache(cachePath, 24, notify);
         await this.playtimeCache.load();
+      }
+
+      if (this.config.topGames?.enabled && this.config.showGameCapsule && !this.topGamesCache) {
+        const cachePath = path.join(__dirname, ".top-games-cache.json");
+        this.topGamesCache = new TopGamesCache(cachePath, notify);
+        await this.topGamesCache.load();
       }
 
       this.sendSocketNotification("SETUP_COMPLETE", { steamId, steamApiKey: steamApiKey.trim() });
@@ -934,6 +973,66 @@ module.exports = NodeHelper.create({
     }
 
     await this.achievementCache.maybePersist();
+  },
+
+  async fetchTopGames(steamId, apiKey) {
+    try {
+      const url = `https://api.steampowered.com/IPlayerService/GetOwnedGames/v0001/?key=${apiKey}&steamid=${steamId}&include_played_free_games=1&include_appinfo=1&format=json`;
+      const response = await this.api.get(url, { timeout: API.TOP_GAMES_REQUEST_TIMEOUT });
+      const games = response.data?.response?.games;
+      if (!Array.isArray(games)) return [];
+      return games
+        .filter(g => (g.playtime_forever || 0) > 0)
+        .sort((a, b) => (b.playtime_forever || 0) - (a.playtime_forever || 0))
+        .slice(0, 4)
+        .map(g => ({ gameId: String(g.appid), name: g.name || '' }));
+    } catch (e) {
+      const s = e.response?.status;
+      if (s !== 401 && s !== 403) console.warn(`[MMM-SteamFriends] fetchTopGames for ${steamId}:`, e.message);
+      return [];
+    }
+  },
+
+  async enrichWithTopGames(friends, apiKey) {
+    if (!this.topGamesCache) return;
+
+    const toFetch = [];
+
+    friends.forEach((friend, index) => {
+      if (!friend.inGame) return;
+
+      const cached = this.topGamesCache.get(friend.id);
+      if (cached) {
+        friend.topGames = cached.games || [];
+        if (!this.topGamesCache.isStale(cached)) return;
+      }
+      toFetch.push({ index, steamId: friend.id });
+    });
+
+    if (toFetch.length === 0) {
+      await this.topGamesCache.maybePersist();
+      return;
+    }
+
+    const batches = this.chunkArray(toFetch, API.TOP_GAMES_CONCURRENT_REQUESTS);
+
+    for (const batch of batches) {
+      const results = await Promise.allSettled(
+        batch.map(async ({ index, steamId }) => {
+          const games = await this.fetchTopGames(steamId, apiKey);
+          return { index, steamId, games };
+        })
+      );
+
+      for (const settled of results) {
+        if (settled.status !== 'fulfilled') continue;
+        const { index, steamId, games } = settled.value;
+        this.topGamesCache.set(steamId, { games });
+        friends[index].topGames = games;
+      }
+    }
+
+    await this.topGamesCache.maybePersist();
   },
 
   async checkForUpdate() {

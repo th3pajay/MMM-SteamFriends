@@ -596,10 +596,39 @@
   gap: 7px;
   vertical-align: middle;
   min-width: 120px;
+  perspective: 600px;
 }
 
 .game-wrapper:has(.game-capsule-large) {
   min-width: 180px;
+}
+
+.capsule-wrap {
+  display: inline-block;
+  transition: transform 0.3s ease;
+}
+
+.game-wrapper.carousel-top-game .capsule-wrap {
+  transform: scale(0.75);
+  transform-origin: left center;
+}
+
+.game-capsule.carousel-flip-out,
+.row:hover .game-capsule.carousel-flip-out {
+  transform: perspective(600px) rotateY(90deg);
+  transition: transform calc(var(--carousel-transition-speed, 400ms) / 2) ease-in;
+}
+
+.game-capsule.carousel-flip-mid,
+.row:hover .game-capsule.carousel-flip-mid {
+  transform: perspective(600px) rotateY(-90deg);
+  transition: none;
+}
+
+.game-capsule.carousel-flip-in,
+.row:hover .game-capsule.carousel-flip-in {
+  transform: perspective(600px) rotateY(0deg);
+  transition: transform calc(var(--carousel-transition-speed, 400ms) / 2) ease-out;
 }
 
 .game-score-badge {
