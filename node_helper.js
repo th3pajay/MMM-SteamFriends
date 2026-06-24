@@ -113,10 +113,17 @@ class PersistentCache {
     return Date.now() - entry.cachedAt > this.ttlMs;
   }
 
+  _lruGet(key) {
+    if (!this.cache.has(key)) return undefined;
+    const value = this.cache.get(key);
+    this.cache.delete(key);
+    this.cache.set(key, value);
+    return value;
+  }
+
   _evictIfNeeded() {
     if (this.cache.size > API.MAX_CACHE_SIZE) {
-      const firstKey = this.cache.keys().next().value;
-      this.cache.delete(firstKey);
+      this.cache.delete(this.cache.keys().next().value);
     }
   }
 }
@@ -128,7 +135,7 @@ class ScoresCache extends PersistentCache {
 
   get(gameId) {
     if (!isValidGameId(gameId)) return null;
-    return this.cache.get(String(gameId));
+    return this._lruGet(String(gameId));
   }
 
   set(gameId, scoreData) {
@@ -149,7 +156,7 @@ class PlaytimeCache extends PersistentCache {
   }
 
   get(steamId) {
-    return this.cache.get(steamId);
+    return this._lruGet(steamId);
   }
 
   set(steamId, playtimeData) {
@@ -163,7 +170,7 @@ class AchievementCache extends PersistentCache {
   constructor(cachePath, ttlMinutes = 10, onError = null) {
     super(cachePath, ttlMinutes * 60 * 1000, 'achievements', onError);
   }
-  get(steamId, gameId) { return this.cache.get(`${steamId}:${gameId}`); }
+  get(steamId, gameId) { return this._lruGet(`${steamId}:${gameId}`); }
   set(steamId, gameId, data) {
     this.cache.set(`${steamId}:${gameId}`, { ...data, cachedAt: Date.now() });
     this.dirty = true;
@@ -175,7 +182,7 @@ class TopGamesCache extends PersistentCache {
   constructor(cachePath, onError = null) {
     super(cachePath, 12 * 60 * 60 * 1000, 'top games', onError);
   }
-  get(steamId) { return this.cache.get(steamId); }
+  get(steamId) { return this._lruGet(steamId); }
   set(steamId, data) {
     this.cache.set(steamId, { ...data, cachedAt: Date.now() });
     this.dirty = true;
@@ -224,24 +231,24 @@ module.exports = NodeHelper.create({
 
   async stop() {
     if (this.pollInterval) {
-      clearInterval(this.pollInterval);
+      clearTimeout(this.pollInterval);
       this.pollInterval = null;
       console.log("[MMM-SteamFriends] Polling stopped");
     }
     if (this.scoresCache) {
-      await this.scoresCache.save();
+      try { await this.scoresCache.save(); } catch(e) {}
       this.scoresCache.cache.clear();
     }
     if (this.playtimeCache) {
-      await this.playtimeCache.save();
+      try { await this.playtimeCache.save(); } catch(e) {}
       this.playtimeCache.cache.clear();
     }
     if (this.achievementCache) {
-      await this.achievementCache.save();
+      try { await this.achievementCache.save(); } catch(e) {}
       this.achievementCache.cache.clear();
     }
     if (this.topGamesCache) {
-      await this.topGamesCache.save();
+      try { await this.topGamesCache.save(); } catch(e) {}
       this.topGamesCache.cache.clear();
     }
   },
@@ -298,7 +305,7 @@ module.exports = NodeHelper.create({
   async socketNotificationReceived(notification, payload) {
     if (notification === "INIT") {
       if (this.pollInterval) {
-        clearInterval(this.pollInterval);
+        clearTimeout(this.pollInterval);
         this.pollInterval = null;
       }
 
@@ -396,16 +403,20 @@ module.exports = NodeHelper.create({
 
   schedulePoll() {
     const base = this.config.updateInterval || 60000;
-    const timeSinceChange = Date.now() - this.pollState.lastChangeTime;
-    const activeThreshold = base * 5;
-    this.pollState.currentInterval = timeSinceChange < activeThreshold
-      ? Math.max(10000, Math.floor(base * 0.5))
-      : Math.min(300000, base * 5);
-
+    let interval;
+    if (this.errorCount > 0) {
+      interval = Math.min(API.FALLBACK_POLL_INTERVAL, base * Math.pow(2, this.errorCount - 1));
+    } else {
+      const timeSinceChange = Date.now() - this.pollState.lastChangeTime;
+      interval = timeSinceChange < base * 5
+        ? Math.max(10000, Math.floor(base * 0.5))
+        : Math.min(300000, base * 5);
+    }
+    this.pollState.currentInterval = interval;
     clearTimeout(this.pollInterval);
     this.pollInterval = setTimeout(() => {
-      this.fetchFriends().then(() => this.schedulePoll());
-    }, this.pollState.currentInterval);
+      this.fetchFriends().then(() => this.schedulePoll()).catch(e => { console.error("[MMM-SteamFriends]", e.message); this.schedulePoll(); });
+    }, interval);
   },
 
   getAvatarUrl(player) {
@@ -483,6 +494,8 @@ module.exports = NodeHelper.create({
       const allFriends = batchResults
         .filter(r => r.status === 'fulfilled')
         .flatMap(r => r.value);
+      if (allFriends.length === 0 && batchResults.every(r => r.status === 'rejected'))
+        return this.sendSocketNotification("ERROR", { message: "Steam API batch failed" });
 
       if ((this.config.sortFriends === "totalPlaytime" || this.config.showGamePlaytime) && this.playtimeCache) {
         await this.enrichWithPlaytime(allFriends, key);
@@ -501,17 +514,11 @@ module.exports = NodeHelper.create({
         return this.sortByConfig(a, b);
       });
 
-      if (this.config.gameScore && this.config.gameScore.enabled && this.scoresCache) {
-        await this.enrichWithScores(allFriends);
-      }
-
-      if (this.config.achievementProgress?.enabled && this.config.showGameCapsule && this.achievementCache) {
-        await this.enrichWithAchievements(allFriends, key);
-      }
-
-      if (this.config.topGames?.enabled && this.config.showGameCapsule && this.topGamesCache) {
-        await this.enrichWithTopGames(allFriends, key);
-      }
+      const enrichments = [];
+      if (this.config.gameScore?.enabled && this.scoresCache) enrichments.push(this.enrichWithScores(allFriends));
+      if (this.config.achievementProgress?.enabled && this.config.showGameCapsule && this.achievementCache) enrichments.push(this.enrichWithAchievements(allFriends, key));
+      if (this.config.topGames?.enabled && this.config.showGameCapsule && this.topGamesCache) enrichments.push(this.enrichWithTopGames(allFriends, key));
+      if (enrichments.length) await Promise.all(enrichments);
 
       const currentHash = this.hashData(allFriends);
       if (currentHash !== this.lastFriendsHash) {
@@ -526,18 +533,6 @@ module.exports = NodeHelper.create({
     } catch (error) {
       this.errorCount++;
       console.error(`[MMM-SteamFriends] Fetch error (${this.errorCount}/${this.maxErrors}):`, error.message);
-
-      if (this.errorCount >= this.maxErrors) {
-        console.error("[MMM-SteamFriends] Max errors reached, increasing poll interval to 5 minutes");
-        if (this.pollInterval) {
-          clearTimeout(this.pollInterval);
-          this.pollInterval = setTimeout(
-            () => this.fetchFriends().then(() => this.schedulePoll()),
-            API.FALLBACK_POLL_INTERVAL
-          );
-        }
-      }
-
       this.sendSocketNotification("ERROR", {
         context: 'fetchFriends',
         message: error.message,

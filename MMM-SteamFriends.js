@@ -67,7 +67,8 @@ Module.register("MMM-SteamFriends", {
     this.friendsMap = new Map();
     this.previousStates = new Map();
     this.cachedStatusCounts = null;
-    this.lastFriendsHash = null;
+    this._statusVersion = 0;
+    this._statusCacheVersion = -1;
     this.pendingTimeouts = [];
     this.carouselTimers = new Map();
     this.masterClock = null;
@@ -92,6 +93,7 @@ Module.register("MMM-SteamFriends", {
       case "FRIENDS_UPDATE": {
         const previousFriends = new Map(this.friends.map(f => [f.id, f]));
         this.friends = payload;
+        this._statusVersion++;
         this.updateFriendsList(previousFriends);
         break;
       }
@@ -142,31 +144,17 @@ Module.register("MMM-SteamFriends", {
   },
 
   getStatusCounts() {
-    const currentHash = this.friends.map(f => `${f.id}:${f.status}:${f.inGame}`).join('|');
-
-    if (this.lastFriendsHash === currentHash && this.cachedStatusCounts) {
+    if (this._statusVersion === this._statusCacheVersion && this.cachedStatusCounts) {
       return this.cachedStatusCounts;
     }
-
-    const counts = {
-      ingame: 0,
-      online: 0,
-      offline: 0
-    };
-
+    const counts = { ingame: 0, online: 0, offline: 0 };
     this.friends.forEach(f => {
-      if (f.inGame) {
-        counts.ingame++;
-      } else if (f.status === "Offline") {
-        counts.offline++;
-      } else {
-        counts.online++;
-      }
+      if (f.inGame) counts.ingame++;
+      else if (f.status === "Offline") counts.offline++;
+      else counts.online++;
     });
-
     this.cachedStatusCounts = counts;
-    this.lastFriendsHash = currentHash;
-
+    this._statusCacheVersion = this._statusVersion;
     return counts;
   },
 
@@ -224,8 +212,7 @@ Module.register("MMM-SteamFriends", {
       if (existingRow) {
         this.updateFriendRow(existingRow, friend, previousFriend);
 
-        const currentIndex = Array.from(tbody.children).indexOf(existingRow);
-        if (currentIndex !== index) {
+        if (tbody.children[index] !== existingRow) {
           tbody.insertBefore(existingRow, tbody.children[index] || null);
         }
       } else {
@@ -274,7 +261,7 @@ Module.register("MMM-SteamFriends", {
       if (flagSpan) {
         updates.push(() => {
           flagSpan.className = `flag flag-${this.sanitizeCountryCode(newFriend.country)}`;
-          flagSpan.title = newFriend.country.toUpperCase();
+          flagSpan.title = (newFriend.country || "").toUpperCase();
         });
       }
     }
