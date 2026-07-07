@@ -53,6 +53,12 @@ Module.register("MMM-SteamFriends", {
         high: 80,
         mid: 50
       }
+    },
+    topGames: {
+      enabled: false,
+      cycleInterval: 30000,
+      rotateInterval: 4000,
+      transitionSpeed: 400
     }
   },
 
@@ -61,8 +67,14 @@ Module.register("MMM-SteamFriends", {
     this.friendsMap = new Map();
     this.previousStates = new Map();
     this.cachedStatusCounts = null;
-    this.lastFriendsHash = null;
+    this._statusVersion = 0;
+    this._statusCacheVersion = -1;
     this.pendingTimeouts = [];
+    this.carouselTimers = new Map();
+    this.masterClock = null;
+    if (this.config.topGames === true) {
+      this.config.topGames = { enabled: true, cycleInterval: 30000, rotateInterval: 4000, transitionSpeed: 400 };
+    }
     this.steamIconEl = null;
     this.updateAvailable = false;
     this.scheduleGlintCycle();
@@ -81,6 +93,7 @@ Module.register("MMM-SteamFriends", {
       case "FRIENDS_UPDATE": {
         const previousFriends = new Map(this.friends.map(f => [f.id, f]));
         this.friends = payload;
+        this._statusVersion++;
         this.updateFriendsList(previousFriends);
         break;
       }
@@ -117,6 +130,12 @@ Module.register("MMM-SteamFriends", {
   suspend() {
     this.pendingTimeouts.forEach(id => clearTimeout(id));
     this.pendingTimeouts = [];
+    this.carouselTimers.forEach(state => {
+      clearTimeout(state.pendingFade);
+      state.gameWrapper?.classList.remove('carousel-active', 'carousel-flip-out', 'carousel-flip-mid', 'carousel-flip-in');
+    });
+    this.carouselTimers.clear();
+    this.stopMasterClock();
     this.sendSocketNotification("SUSPEND");
   },
 
@@ -125,31 +144,17 @@ Module.register("MMM-SteamFriends", {
   },
 
   getStatusCounts() {
-    const currentHash = this.friends.map(f => `${f.id}:${f.status}:${f.inGame}`).join('|');
-
-    if (this.lastFriendsHash === currentHash && this.cachedStatusCounts) {
+    if (this._statusVersion === this._statusCacheVersion && this.cachedStatusCounts) {
       return this.cachedStatusCounts;
     }
-
-    const counts = {
-      ingame: 0,
-      online: 0,
-      offline: 0
-    };
-
+    const counts = { ingame: 0, online: 0, offline: 0 };
     this.friends.forEach(f => {
-      if (f.inGame) {
-        counts.ingame++;
-      } else if (f.status === "Offline") {
-        counts.offline++;
-      } else {
-        counts.online++;
-      }
+      if (f.inGame) counts.ingame++;
+      else if (f.status === "Offline") counts.offline++;
+      else counts.online++;
     });
-
     this.cachedStatusCounts = counts;
-    this.lastFriendsHash = currentHash;
-
+    this._statusCacheVersion = this._statusVersion;
     return counts;
   },
 
@@ -192,6 +197,7 @@ Module.register("MMM-SteamFriends", {
             }, this.config.animations.fadeOutDuration ?? ANIMATION_DURATIONS.FADE_OUT);
             this.pendingTimeouts.push(timeoutId);
           }
+          this.stopCarousel(id);
           this.friendsMap.delete(id);
           this.previousStates.delete(id);
         }
@@ -206,8 +212,7 @@ Module.register("MMM-SteamFriends", {
       if (existingRow) {
         this.updateFriendRow(existingRow, friend, previousFriend);
 
-        const currentIndex = Array.from(tbody.children).indexOf(existingRow);
-        if (currentIndex !== index) {
+        if (tbody.children[index] !== existingRow) {
           tbody.insertBefore(existingRow, tbody.children[index] || null);
         }
       } else {
@@ -226,6 +231,15 @@ Module.register("MMM-SteamFriends", {
           status: friend.status,
           inGame: friend.inGame
         });
+        this.syncCarousel(friend, newRow);
+      }
+    });
+
+    // Restart carousels for existing rows missing one (e.g. after resume)
+    friendsToShow.forEach(friend => {
+      if (!this.carouselTimers.has(friend.id)) {
+        const row = this.friendsMap.get(friend.id);
+        if (row) this.syncCarousel(friend, row);
       }
     });
   },
@@ -247,7 +261,7 @@ Module.register("MMM-SteamFriends", {
       if (flagSpan) {
         updates.push(() => {
           flagSpan.className = `flag flag-${this.sanitizeCountryCode(newFriend.country)}`;
-          flagSpan.title = newFriend.country.toUpperCase();
+          flagSpan.title = (newFriend.country || "").toUpperCase();
         });
       }
     }
@@ -281,6 +295,7 @@ Module.register("MMM-SteamFriends", {
           }
           this.appendPlatformIcon(gameCell, newFriend);
           gameCell.appendChild(this.createGameCell(newFriend));
+          this.syncCarousel(newFriend, row);
         });
 
         if (newFriend.game && this.config.animations.enabled) {
@@ -361,6 +376,8 @@ Module.register("MMM-SteamFriends", {
           textSpan.textContent = friend.game || "";
           gameWrapper.insertBefore(textSpan, gameWrapper.firstChild);
         };
+        const capsuleWrap = document.createElement('div');
+        capsuleWrap.className = 'capsule-wrap';
         if (this.config.achievementProgress?.enabled && friend.achievementPct !== undefined) {
           const frame = document.createElement('div');
           frame.className = 'capsule-frame';
@@ -381,10 +398,11 @@ Module.register("MMM-SteamFriends", {
             trophy.textContent = '🏆';
             frame.appendChild(trophy);
           }
-          gameWrapper.appendChild(frame);
+          capsuleWrap.appendChild(frame);
         } else {
-          gameWrapper.appendChild(img);
+          capsuleWrap.appendChild(img);
         }
+        gameWrapper.appendChild(capsuleWrap);
       } else {
         const textSpan = document.createElement("span");
         textSpan.className = "game-text";
@@ -495,6 +513,127 @@ Module.register("MMM-SteamFriends", {
   getPlatformIconSrc(platform) {
     const map = { pc: 'pc.svg', web: 'web.svg', mobile: 'steam.svg', deck: 'deck.svg' };
     return map[platform] ? this.file(`icons/${map[platform]}`) : null;
+  },
+
+  stopCarousel(friendId) {
+    const state = this.carouselTimers.get(friendId);
+    if (!state) return;
+    clearTimeout(state.pendingFade);
+    state.gameWrapper?.classList.remove('carousel-active', 'carousel-flip-out', 'carousel-flip-mid', 'carousel-flip-in');
+    this.carouselTimers.delete(friendId);
+    if (this.carouselTimers.size === 0) this.stopMasterClock();
+  },
+
+  startMasterClock() {
+    if (this.masterClock) return;
+    const rotateInterval = this.config.topGames?.rotateInterval ?? 4000;
+    this.masterClock = setInterval(() => this.tickAllCarousels(), rotateInterval);
+  },
+
+  stopMasterClock() {
+    clearInterval(this.masterClock);
+    this.masterClock = null;
+  },
+
+  getCycleWaitTicks() {
+    const cfg = this.config.topGames;
+    const cycleInterval = cfg?.cycleInterval ?? 30000;
+    const rotateInterval = cfg?.rotateInterval ?? 4000;
+    return Math.max(1, Math.round(cycleInterval / rotateInterval));
+  },
+
+  tickAllCarousels() {
+    this.carouselTimers.forEach(state => {
+      if (state.ticksRemaining > 0) {
+        state.ticksRemaining--;
+        return;
+      }
+      state.slideIndex = (state.slideIndex + 1) % state.slides.length;
+      this.flipToSlide(state);
+      if (state.slideIndex === 0) {
+        state.ticksRemaining = this.getCycleWaitTicks();
+      }
+    });
+  },
+
+  flipToSlide(state) {
+    const transitionSpeed = this.config.topGames?.transitionSpeed ?? 400;
+    const halfSpeed = Math.round(transitionSpeed / 2);
+    const img = state.gameWrapper.querySelector('.game-capsule');
+    if (!img) return;
+    const nextUrl = this.getGameCapsuleUrl(state.slides[state.slideIndex]);
+    if (!nextUrl) return;
+    const isCurrentGame = state.slideIndex === 0;
+
+    img.classList.remove('carousel-flip-in');
+    img.classList.add('carousel-flip-out');
+
+    clearTimeout(state.pendingFade);
+    state.pendingFade = setTimeout(() => {
+      img.src = nextUrl;
+      img.alt = isCurrentGame ? state.friend.game : (state.friend.topGames[state.slideIndex - 1]?.name ?? '');
+      img.title = img.alt;
+      const greyLayer = state.gameWrapper.querySelector('.capsule-grey-layer');
+      const divider = state.gameWrapper.querySelector('.achievement-divider');
+      const trophy = state.gameWrapper.querySelector('.capsule-trophy');
+      if (greyLayer) greyLayer.style.opacity = isCurrentGame ? '' : '0';
+      if (divider) divider.style.opacity = isCurrentGame ? '' : '0';
+      if (trophy) trophy.style.opacity = isCurrentGame ? '' : '0';
+      state.gameWrapper.classList.toggle('carousel-top-game', !isCurrentGame);
+
+      img.classList.remove('carousel-flip-out');
+      img.classList.add('carousel-flip-mid');
+      void img.offsetWidth;
+      img.classList.remove('carousel-flip-mid');
+      img.classList.add('carousel-flip-in');
+
+      const t = setTimeout(() => img.classList.remove('carousel-flip-in'), halfSpeed);
+      this.pendingTimeouts.push(t);
+    }, halfSpeed);
+  },
+
+  syncCarousel(friend, row) {
+    if (!this.config.topGames?.enabled || !friend.inGame || !friend.topGames?.length) {
+      this.stopCarousel(friend.id);
+      return;
+    }
+    const existing = this.carouselTimers.get(friend.id);
+    if (existing && existing.gameId === String(friend.gameId)) return;
+    const gameWrapper = row.querySelector('.game-wrapper');
+    if (gameWrapper) this.startTopGamesCarousel(friend, gameWrapper);
+  },
+
+  startTopGamesCarousel(friend, gameWrapper) {
+    this.stopCarousel(friend.id);
+    const currentGameId = String(friend.gameId);
+    const slides = [
+      currentGameId,
+      ...friend.topGames.map(g => String(g.gameId)).filter(id => id !== currentGameId)
+    ].slice(0, 4);
+    if (slides.length < 2) return;
+
+    const waitTicks = this.getCycleWaitTicks();
+    let ticksRemaining = waitTicks;
+    const existingState = this.carouselTimers.values().next().value;
+    if (existingState) {
+      if (existingState.slideIndex === 0) {
+        ticksRemaining = existingState.ticksRemaining;
+      } else {
+        ticksRemaining = (existingState.slides.length - existingState.slideIndex) + waitTicks;
+      }
+    }
+
+    gameWrapper.classList.add('carousel-active');
+    this.carouselTimers.set(friend.id, {
+      gameId: currentGameId,
+      slides,
+      slideIndex: 0,
+      ticksRemaining,
+      gameWrapper,
+      friend,
+      pendingFade: null
+    });
+    this.startMasterClock();
   },
 
   getGameCapsuleUrl(gameId) {
@@ -664,6 +803,10 @@ Module.register("MMM-SteamFriends", {
     table.style.setProperty('--slide-out-duration', `${anim.slideOutDuration ?? 400}ms`);
     table.style.setProperty('--fade-in-duration', `${anim.fadeInDuration ?? 300}ms`);
     table.style.setProperty('--fade-out-duration', `${anim.fadeOutDuration ?? 300}ms`);
+
+    if (this.config.topGames?.enabled) {
+      table.style.setProperty('--carousel-transition-speed', `${this.config.topGames.transitionSpeed ?? 400}ms`);
+    }
 
     if (this.config.magicBorder.enabled) {
       table.classList.add('magic-border');

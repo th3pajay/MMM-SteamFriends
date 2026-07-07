@@ -40,6 +40,15 @@
       }
     },
 
+    // Top games carousel — cycles gamecapsule through friend's top 3 most-played games (in-game friends only)
+    // Requires showGameCapsule: true and public Steam profile (uses GetOwnedGames for all-time playtime)
+    topGames: {
+      enabled: false,               // Set true (or shorthand: topGames: true) to enable
+      cycleInterval: 30000,         // ms to wait between carousel cycles (how long current game is shown)
+      rotateInterval: 4000,         // ms each top-game slide is shown during a cycle
+      transitionSpeed: 400          // ms for the crossfade animation (must be < rotateInterval)
+    },
+
     animations: {
       enabled: true,
       gamingPulse: true,            // Pulse effect on in-game rows

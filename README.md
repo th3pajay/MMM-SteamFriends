@@ -5,7 +5,7 @@ MagicMirror module to display Steam friends list with online and in-game status.
 ![MagicMirror](https://img.shields.io/badge/MagicMirror-v2.33.0-blue)
 ![Steam](https://img.shields.io/badge/Steam-Friends-green)
 ![Module](https://img.shields.io/badge/Module-Display-orange)
-![Version](https://img.shields.io/badge/Version-1.4.84-green)
+![Version](https://img.shields.io/badge/Version-1.4.91-green)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey)
 
 <p align="center">
@@ -57,7 +57,7 @@ Add to `config/config.js`:
       enabled: false,               // Enable/disable game score badges (opt-in, requires additional API calls)
       refreshDays: 7,               // How often to refresh cached scores (days)
       minReviews: 50,               // Minimum reviews required to show score
-      showPercentSign: true,        // Show "85%" vs "85"
+showPercentSign: true,        // Show "85%" vs "85"
       colors: {
         high: "#57cbde",            // Color for scores >= 80
         mid: "#a3a3a3",             // Color for scores 50-79
@@ -67,6 +67,15 @@ Add to `config/config.js`:
         high: 80,                   // Score >= this is "high"
         mid: 50                     // Score >= this is "mid", below is "low"
       }
+    },
+
+    // Top games carousel — cycles gamecapsule through friend's top 3 most-played games (in-game friends only)
+    // Requires showGameCapsule: true and public Steam profile. Uses all-time playtime (GetOwnedGames).
+    topGames: {
+      enabled: false,               // Enable the carousel (or shorthand: topGames: true)
+      cycleInterval: 30000,         // ms to wait between cycles (how long current game stays shown)
+      rotateInterval: 4000,         // ms each top-game slide is shown during a cycle
+      transitionSpeed: 400          // crossfade duration in ms (must be < rotateInterval)
     },
 
     animations: {
@@ -88,6 +97,8 @@ Add to `config/config.js`:
 }
 ```
 ## Changelog
+- **1.4.91** Polling, network drop, no country code UI fixes 
+- **1.4.88** Added top3 games flipping on gamecapsule, only for currently playing friends
 - **1.4.84** Achievement progress capsule split (color/grey proportional), trophy icon at 100%, 3D capsule depth, badge readability improvements, update notification arrow
 - **1.4.76** Flattened project structure
 - **1.4.75** Component positioning, glinting Steam icon
