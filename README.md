@@ -5,7 +5,7 @@ MagicMirror module to display Steam friends list with online and in-game status.
 ![MagicMirror](https://img.shields.io/badge/MagicMirror-v2.33.0-blue)
 ![Steam](https://img.shields.io/badge/Steam-Friends-green)
 ![Module](https://img.shields.io/badge/Module-Display-orange)
-![Version](https://img.shields.io/badge/Version-1.4.91-green)
+![Version](https://img.shields.io/badge/Version-1.4.92-green)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey)
 
 <p align="center">
@@ -97,6 +97,7 @@ showPercentSign: true,        // Show "85%" vs "85"
 }
 ```
 ## Changelog
+- **1.4.92** Clickable friend, played game information cells
 - **1.4.91** Polling, network drop, no country code UI fixes 
 - **1.4.88** Added top3 games flipping on gamecapsule, only for currently playing friends
 - **1.4.84** Achievement progress capsule split (color/grey proportional), trophy icon at 100%, 3D capsule depth, badge readability improvements, update notification arrow

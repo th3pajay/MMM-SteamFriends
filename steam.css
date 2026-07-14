@@ -470,6 +470,16 @@
   text-overflow: ellipsis;
 }
 
+.name-link, .game-link {
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.name-link:hover, .game-link:hover {
+  text-decoration: underline;
+}
+
 .game {
   color: rgba(255, 255, 255, 0.85);
   font-size: 0.95rem;

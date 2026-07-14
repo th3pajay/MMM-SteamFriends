@@ -250,9 +250,9 @@ Module.register("MMM-SteamFriends", {
     const updates = [];
 
     if (newFriend.name !== oldFriend.name) {
-      const nameCell = row.querySelector('.name');
-      if (nameCell) {
-        updates.push(() => nameCell.textContent = newFriend.name);
+      const nameLink = row.querySelector('.name-link');
+      if (nameLink) {
+        updates.push(() => nameLink.textContent = newFriend.name);
       }
     }
 
@@ -357,6 +357,18 @@ Module.register("MMM-SteamFriends", {
       return gameWrapper;
     }
 
+    const storeUrl = friend.gameId && /^\d+$/.test(String(friend.gameId))
+      ? `https://store.steampowered.com/app/${friend.gameId}`
+      : null;
+    const gameTarget = storeUrl
+      ? Object.assign(document.createElement("a"), {
+          className: "game-link",
+          href: storeUrl,
+          target: "_blank",
+          rel: "noopener noreferrer"
+        })
+      : gameWrapper;
+
     if (this.config.showGameCapsule && friend.gameId) {
       const capsuleUrl = this.getGameCapsuleUrl(friend.gameId);
       if (capsuleUrl) {
@@ -374,7 +386,7 @@ Module.register("MMM-SteamFriends", {
           const textSpan = document.createElement("span");
           textSpan.className = "game-text";
           textSpan.textContent = friend.game || "";
-          gameWrapper.insertBefore(textSpan, gameWrapper.firstChild);
+          gameTarget.insertBefore(textSpan, gameTarget.firstChild);
         };
         const capsuleWrap = document.createElement('div');
         capsuleWrap.className = 'capsule-wrap';
@@ -402,18 +414,22 @@ Module.register("MMM-SteamFriends", {
         } else {
           capsuleWrap.appendChild(img);
         }
-        gameWrapper.appendChild(capsuleWrap);
+        gameTarget.appendChild(capsuleWrap);
       } else {
         const textSpan = document.createElement("span");
         textSpan.className = "game-text";
         textSpan.textContent = friend.game;
-        gameWrapper.appendChild(textSpan);
+        gameTarget.appendChild(textSpan);
       }
     } else {
       const textSpan = document.createElement("span");
       textSpan.className = "game-text";
       textSpan.textContent = friend.game;
-      gameWrapper.appendChild(textSpan);
+      gameTarget.appendChild(textSpan);
+    }
+
+    if (storeUrl) {
+      gameWrapper.appendChild(gameTarget);
     }
 
     if (this.config.gameScore.enabled && friend.gameScore !== undefined) {
@@ -461,7 +477,13 @@ Module.register("MMM-SteamFriends", {
 
     const nameTd = document.createElement("td");
     nameTd.className = "name";
-    nameTd.textContent = friend.name;
+    const nameLink = document.createElement("a");
+    nameLink.className = "name-link";
+    nameLink.href = `https://steamcommunity.com/profiles/${friend.id}`;
+    nameLink.target = "_blank";
+    nameLink.rel = "noopener noreferrer";
+    nameLink.textContent = friend.name;
+    nameTd.appendChild(nameLink);
 
     const gameTd = document.createElement("td");
     gameTd.className = "game";
