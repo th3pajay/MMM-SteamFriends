@@ -5,7 +5,7 @@ MagicMirror module to display Steam friends list with online and in-game status.
 ![MagicMirror](https://img.shields.io/badge/MagicMirror-v2.33.0-blue)
 ![Steam](https://img.shields.io/badge/Steam-Friends-green)
 ![Module](https://img.shields.io/badge/Module-Display-orange)
-![Version](https://img.shields.io/badge/Version-1.4.94-green)
+![Version](https://img.shields.io/badge/Version-1.4.95-green)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey)
 
 <p align="center">
