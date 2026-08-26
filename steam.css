@@ -672,6 +672,37 @@
   vertical-align: middle;
 }
 
+.game-text-capsule {
+  display: inline-block;
+  max-width: 120px;
+  overflow: hidden;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.game-text-capsule-lg {
+  max-width: 180px;
+}
+
+.game-text-capsule .game-text-scroll {
+  display: inline-block;
+  animation: gameTextBounce 6s ease-in-out infinite alternate;
+}
+
+.game-text-capsule-lg .game-text-scroll {
+  animation-name: gameTextBounceLarge;
+}
+
+@keyframes gameTextBounce {
+  from { transform: translateX(0); }
+  to   { transform: translateX(min(0px, calc(120px - 100%))); }
+}
+
+@keyframes gameTextBounceLarge {
+  from { transform: translateX(0); }
+  to   { transform: translateX(min(0px, calc(180px - 100%))); }
+}
+
 .steam-setup {
   text-align: center;
   padding: 40px 20px;

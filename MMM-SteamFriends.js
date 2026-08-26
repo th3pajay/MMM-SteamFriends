@@ -130,16 +130,30 @@ Module.register("MMM-SteamFriends", {
   suspend() {
     this.pendingTimeouts.forEach(id => clearTimeout(id));
     this.pendingTimeouts = [];
+    this.resetCarousels();
+    this.sendSocketNotification("SUSPEND");
+  },
+
+  trackTimeout(fn, delay) {
+    const id = setTimeout(() => {
+      this.pendingTimeouts = this.pendingTimeouts.filter(t => t !== id);
+      fn();
+    }, delay);
+    this.pendingTimeouts.push(id);
+    return id;
+  },
+
+  resetCarousels() {
     this.carouselTimers.forEach(state => {
       clearTimeout(state.pendingFade);
       state.gameWrapper?.classList.remove('carousel-active', 'carousel-flip-out', 'carousel-flip-mid', 'carousel-flip-in');
     });
     this.carouselTimers.clear();
     this.stopMasterClock();
-    this.sendSocketNotification("SUSPEND");
   },
 
   resume() {
+    this.scheduleGlintCycle();
     this.sendSocketNotification("RESUME");
   },
 
@@ -182,20 +196,18 @@ Module.register("MMM-SteamFriends", {
 
           if (this.config.animations.enabled && this.config.animations.slideOutOffline && wasOnline) {
             row.classList.add('slide-out');
-            const timeoutId = setTimeout(() => {
+            this.trackTimeout(() => {
               if (row.parentNode) {
                 row.remove();
               }
             }, this.config.animations.slideOutDuration ?? ANIMATION_DURATIONS.SLIDE_OUT);
-            this.pendingTimeouts.push(timeoutId);
           } else {
             row.classList.add('fade-out');
-            const timeoutId = setTimeout(() => {
+            this.trackTimeout(() => {
               if (row.parentNode) {
                 row.remove();
               }
             }, this.config.animations.fadeOutDuration ?? ANIMATION_DURATIONS.FADE_OUT);
-            this.pendingTimeouts.push(timeoutId);
           }
           this.stopCarousel(id);
           this.friendsMap.delete(id);
@@ -276,8 +288,7 @@ Module.register("MMM-SteamFriends", {
 
       if (this.config.animations.enabled) {
         row.classList.add('status-change');
-        const timeoutId = setTimeout(() => row.classList.remove('status-change'), ANIMATION_DURATIONS.STATUS_CHANGE);
-        this.pendingTimeouts.push(timeoutId);
+        this.trackTimeout(() => row.classList.remove('status-change'), ANIMATION_DURATIONS.STATUS_CHANGE);
       }
     }
 
@@ -300,8 +311,7 @@ Module.register("MMM-SteamFriends", {
 
         if (newFriend.game && this.config.animations.enabled) {
           gameCell.classList.add('game-change');
-          const timeoutId = setTimeout(() => gameCell.classList.remove('game-change'), ANIMATION_DURATIONS.GAME_CHANGE);
-          this.pendingTimeouts.push(timeoutId);
+          this.trackTimeout(() => gameCell.classList.remove('game-change'), ANIMATION_DURATIONS.GAME_CHANGE);
         }
       }
     }
@@ -349,6 +359,17 @@ Module.register("MMM-SteamFriends", {
     }
   },
 
+  createCapsuleText(name) {
+    const wrap = document.createElement("span");
+    wrap.className = "game-text game-text-capsule";
+    if (this.config.gameCapsuleSize === "large") wrap.classList.add("game-text-capsule-lg");
+    const inner = document.createElement("span");
+    inner.className = "game-text-scroll";
+    inner.textContent = name || "";
+    wrap.appendChild(inner);
+    return wrap;
+  },
+
   createGameCell(friend) {
     const gameWrapper = document.createElement("div");
     gameWrapper.className = "game-wrapper";
@@ -383,10 +404,7 @@ Module.register("MMM-SteamFriends", {
         img.loading = "lazy";
         img.onerror = () => {
           img.remove();
-          const textSpan = document.createElement("span");
-          textSpan.className = "game-text";
-          textSpan.textContent = friend.game || "";
-          gameTarget.insertBefore(textSpan, gameTarget.firstChild);
+          gameTarget.insertBefore(this.createCapsuleText(friend.game), gameTarget.firstChild);
         };
         const capsuleWrap = document.createElement('div');
         capsuleWrap.className = 'capsule-wrap';
@@ -416,10 +434,7 @@ Module.register("MMM-SteamFriends", {
         }
         gameTarget.appendChild(capsuleWrap);
       } else {
-        const textSpan = document.createElement("span");
-        textSpan.className = "game-text";
-        textSpan.textContent = friend.game;
-        gameTarget.appendChild(textSpan);
+        gameTarget.appendChild(this.createCapsuleText(friend.game));
       }
     } else {
       const textSpan = document.createElement("span");
@@ -609,8 +624,7 @@ Module.register("MMM-SteamFriends", {
       img.classList.remove('carousel-flip-mid');
       img.classList.add('carousel-flip-in');
 
-      const t = setTimeout(() => img.classList.remove('carousel-flip-in'), halfSpeed);
-      this.pendingTimeouts.push(t);
+      this.trackTimeout(() => img.classList.remove('carousel-flip-in'), halfSpeed);
     }, halfSpeed);
   },
 
@@ -620,7 +634,7 @@ Module.register("MMM-SteamFriends", {
       return;
     }
     const existing = this.carouselTimers.get(friend.id);
-    if (existing && existing.gameId === String(friend.gameId)) return;
+    if (existing && existing.gameId === String(friend.gameId) && existing.gameWrapper?.isConnected) return;
     const gameWrapper = row.querySelector('.game-wrapper');
     if (gameWrapper) this.startTopGamesCarousel(friend, gameWrapper);
   },
@@ -839,6 +853,7 @@ Module.register("MMM-SteamFriends", {
       table.style.setProperty('--magic-scale-peak', this.config.magicBorder.scalePeak);
     }
 
+    this.resetCarousels();
     const tbody = document.createElement("tbody");
 
     const friendsToShow = this.friends.slice(0, this.config.maxFriends);
@@ -865,17 +880,14 @@ Module.register("MMM-SteamFriends", {
       if (!mins.includes(m)) mins.push(m);
     }
     mins.forEach(m => {
-      const t = setTimeout(() => this.triggerIconGlint(), m * 60000);
-      this.pendingTimeouts.push(t);
+      this.trackTimeout(() => this.triggerIconGlint(), m * 60000);
     });
-    const t = setTimeout(() => this.scheduleGlintCycle(), 3600000);
-    this.pendingTimeouts.push(t);
+    this.trackTimeout(() => this.scheduleGlintCycle(), 3600000);
   },
 
   triggerIconGlint() {
     if (!this.steamIconEl) return;
     this.steamIconEl.classList.add("glinting");
-    const t = setTimeout(() => this.steamIconEl?.classList.remove("glinting"), 700);
-    this.pendingTimeouts.push(t);
+    this.trackTimeout(() => this.steamIconEl?.classList.remove("glinting"), 700);
   }
 });
