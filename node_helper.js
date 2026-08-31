@@ -377,6 +377,7 @@ module.exports = NodeHelper.create({
     }
 
     if (notification === "SUSPEND") {
+      this.suspended = true;
       if (this.pollInterval) {
         clearTimeout(this.pollInterval);
         this.pollInterval = null;
@@ -385,6 +386,7 @@ module.exports = NodeHelper.create({
     }
 
     if (notification === "RESUME") {
+      this.suspended = false;
       if (!this.pollInterval && this.config) {
         await this.fetchFriends();
         this.schedulePoll();
@@ -415,7 +417,9 @@ module.exports = NodeHelper.create({
     this.pollState.currentInterval = interval;
     clearTimeout(this.pollInterval);
     this.pollInterval = setTimeout(() => {
-      this.fetchFriends().then(() => this.schedulePoll()).catch(e => { console.error("[MMM-SteamFriends]", e.message); this.schedulePoll(); });
+      this.fetchFriends()
+        .then(() => { if (!this.suspended) this.schedulePoll(); })
+        .catch(e => { console.error("[MMM-SteamFriends]", e.message); if (!this.suspended) this.schedulePoll(); });
     }, interval);
   },
 
@@ -448,6 +452,7 @@ module.exports = NodeHelper.create({
 
       const friendListUrl = `https://api.steampowered.com/ISteamUser/GetFriendList/v0001/?key=${key}&steamid=${this.config.steamId}&relationship=friend`;
       const friendListRes = await this.api.get(friendListUrl);
+      this.errorCount = 0;
 
       const friendsRaw = friendListRes.data?.friendslist?.friends;
       if (!Array.isArray(friendsRaw)) {
@@ -496,6 +501,7 @@ module.exports = NodeHelper.create({
         .flatMap(r => r.value);
       if (allFriends.length === 0 && batchResults.every(r => r.status === 'rejected'))
         return this.sendSocketNotification("ERROR", { message: "Steam API batch failed" });
+      if (batchResults.some(r => r.status === 'rejected')) return;
 
       if ((this.config.sortFriends === "totalPlaytime" || this.config.showGamePlaytime) && this.playtimeCache) {
         await this.enrichWithPlaytime(allFriends, key);
@@ -527,8 +533,6 @@ module.exports = NodeHelper.create({
         this.lastFriendsHash = currentHash;
         this.sendSocketNotification("FRIENDS_UPDATE", allFriends);
       }
-
-      this.errorCount = 0;
 
     } catch (error) {
       this.errorCount++;
