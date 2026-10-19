@@ -9,3 +9,4 @@ credentials.json
 nul
 .idea/
 *.iml
+.*-cache.json
