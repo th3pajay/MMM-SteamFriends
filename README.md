@@ -5,7 +5,7 @@ MagicMirror module to display Steam friends list with online and in-game status.
 ![MagicMirror](https://img.shields.io/badge/MagicMirror-v2.33.0-blue)
 ![Steam](https://img.shields.io/badge/Steam-Friends-green)
 ![Module](https://img.shields.io/badge/Module-Display-orange)
-![Version](https://img.shields.io/badge/Version-1.4.95-green)
+![Version](https://img.shields.io/badge/Version-1.5.04-green)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey)
 
 <p align="center">
@@ -28,75 +28,77 @@ Add to `config/config.js`:
   module: "MMM-SteamFriends",
   position: "top_center",
   config: {
-    steamId: "76561198XXXXXXXXX",
-    steamApiKey: "",
-    updateInterval: 60000,          // Poll interval in ms (default 60s)
-    maxFriends: 5,                  // Max number of friends to display
-    sortFriends: "alphabetic",      // "alphabetic", "recentActivity", "totalPlaytime" (requires public profiles)
-    friendAllowlist: [],            // Only show these Steam IDs (empty = show all)
-    borderRadius: "16px",
-    scale: 0.7,
-    avatarSize: "medium",           // "small" (32x32), "medium" (64x64), "full" (184x184)
-    setup: false,                   // Set true for first-time setup (web form at /MMM-SteamFriends/setup)
-
-    // Game capsule art
-    showGameCapsule: false,         // Show game artwork instead of text when in-game
-    gameCapsuleSize: "small",       // "small" (231x87) or "large" (header.jpg)
-    showGamePlaytime: false,        // Show hours played in current game (bottom-right of capsule, requires public profiles)
-
-    // Achievement progress — desaturates capsule art proportionally (requires showGameCapsule: true)
-    // Left portion stays full color (unlocked), right portion turns dark grey (locked)
-    // Trophy icon shown when 100% complete. Requires public Steam profile.
-    achievementProgress: {
-      enabled: false,
-      refreshMinutes: 10,           // How often to re-check achievement progress
+    account: {
+      steamId: "76561198XXXXXXXXX",
+      steamApiKey: ""                // Leave both empty to open the setup page at /MMM-SteamFriends/setup
     },
 
-    // Game score badge (top-right of capsule)
-    gameScore: {
-      enabled: false,               // Enable/disable game score badges (opt-in, requires additional API calls)
-      refreshDays: 7,               // How often to refresh cached scores (days)
-      minReviews: 50,               // Minimum reviews required to show score
-showPercentSign: true,        // Show "85%" vs "85"
-      colors: {
-        high: "#57cbde",            // Color for scores >= 80
-        mid: "#a3a3a3",             // Color for scores 50-79
-        low: "#e05555"              // Color for scores < 50
+    friends: {
+      interval: 60000,               // Poll interval in ms
+      max: 5,                        // Max rows displayed (includes the "+N more offline" row)
+      sort: "alphabetic",            // "alphabetic", "recentActivity", "totalPlaytime" (public profiles)
+      allowlist: [],                 // Only show these Steam IDs (empty = show all)
+      offline: "collapse",           // "collapse" (dimmed + summary row), "dim", "show", "hide"
+      recentOffline: 3               // Offline friends kept visible while collapsed
+    },
+
+    look: {
+      density: "normal",            // "compact", "normal", "roomy"
+      accent: "cyan",               // "cyan", "green", "violet", "amber" or any hex color
+      scale: 0.7,
+      opacity: 0.92,                // Panel opacity, 0.3 - 1
+      radius: "16px",
+      avatar: "medium",             // "small" (32x32), "medium" (64x64), "full" (184x184)
+      colors: {                     // Color per friend state
+        ingame: "#00e676",
+        online: "#38bdf8",
+        away: "#ffb300",
+        busy: "#ff6b35",
+        offline: "#667085"
       },
-      thresholds: {
-        high: 80,                   // Score >= this is "high"
-        mid: 50                     // Score >= this is "mid", below is "low"
+      motion: "calm",               // "calm", "full" (adds slow breathing dots), "off"
+      glow: false                   // Animated glow around the panel
+    },
+
+    header: {
+      ticker: true,                 // Rotating "what is being played" line
+      live: true                    // Live / stale / error indicator
+    },
+
+    games: {
+      capsule: "off",               // "off", "small" (231x87), "large" (header.jpg): game art for in-game friends
+      achievements: "off",          // "off", "bar", "split" (needs capsule, public profile)
+      playtime: false,              // Hours played in the current game (public profile)
+      timer: true,                  // "Playing · 1h 20m", counted from when the mirror first saw the game
+
+      score: {                      // Steam review score badge (extra API calls)
+        enabled: false,
+        minReviews: 50,
+        colors: { high: "#57cbde", mid: "#a3a3a3", low: "#842c2c" },
+        thresholds: { high: 80, mid: 50 }
+      },
+
+      topGames: {                   // Carousel of the friend's most played games (needs capsule, public profile)
+        enabled: false,
+        cycle: 30000,               // ms the current game stays shown between flips
+        rotate: 4000                // ms each top-game slide is shown
       }
-    },
-
-    // Top games carousel — cycles gamecapsule through friend's top 3 most-played games (in-game friends only)
-    // Requires showGameCapsule: true and public Steam profile. Uses all-time playtime (GetOwnedGames).
-    topGames: {
-      enabled: false,               // Enable the carousel (or shorthand: topGames: true)
-      cycleInterval: 30000,         // ms to wait between cycles (how long current game stays shown)
-      rotateInterval: 4000,         // ms each top-game slide is shown during a cycle
-      transitionSpeed: 400          // crossfade duration in ms (must be < rotateInterval)
-    },
-
-    animations: {
-      enabled: true,
-      gamingPulse: true,            // Pulse effect on in-game rows
-      slideInOnline: true,          // Slide in when friend comes online
-      slideOutOffline: true         // Slide out when friend goes offline
-    },
-
-    magicBorder: {
-      enabled: false,               // Enable/disable the animated glow effect
-      duration: 10,                 // Animation cycle duration in seconds
-      intensity: 1.0,               // Overall intensity multiplier (0.5 - 2.0)
-      blurBase: 4,                  // Blur radius during calm phase (px)
-      blurPeak: 8,                  // Blur radius at peak glow (px)
-      scalePeak: 1.12               // Border scale at peak (1.0 - 1.5)
     }
   }
 }
 ```
+
+Every option is optional; the example above lists all of them with their defaults. A minimal config only needs the account:
+
+```json
+config: { account: { steamId: "76561198XXXXXXXXX", steamApiKey: "" } }
+```
+
+Configs written for earlier versions (flat keys such as `maxFriends`, `showGameCapsule`, `animations`, `magicBorder`) keep working unchanged.
+
+
 ## Changelog
+- **1.5.03** Header with labelled counters, proportion bar, now-playing ticker and live/stale/error dot; grouped, shorter config (old keys still work); session timer and NEW tag for in-game friends; achievement progress bar; offline friends dimmed with last seen and collapsed to a summary row; rows glide to new positions; calm event-driven motion; CSS-variable theming (accent, state colors, density, panel opacity); in-game friends' sessions, playtime and achievements refresh correctly; fewer Steam API calls
 - **1.4.95** Better polling, no flickering friend list, long game titles scroll not overshoot module
 - **1.4.92** Clickable friend, played game information cells
 - **1.4.91** Polling, network drop, no country code UI fixes 
